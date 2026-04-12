@@ -429,7 +429,7 @@
     const sup = $('#invFilterSupplier').value;
     const lowOnly = $('#invFilterLowStock').checked;
 
-    const labels = { kitchen: '🍳 Kitchen Stock', beverage: '🥤 Beverage Stock', stockroom: '📦 Stock Room' };
+    const labels = { kitchen: '🍳 Kitchen Stock', beverage: '🥤 Beverage Stock', stockroom: '📦 Stock Room', pastry: '🥐 Pastry Stock', takeout: '🥡 Takeout Stock' };
     $('#inventoryTitle').textContent = labels[type] || 'Inventory';
 
     const filtered = items.filter(it => {
@@ -451,9 +451,19 @@
         <td>${it.unit || '—'}</td>
         <td>
           <div class="qty-cell">
-            <button class="btn btn-ghost btn-sm btn-icon" data-act="dec" data-id="${it.id}">−</button>
-            <span class="qty" data-id="${it.id}" style="font-weight:700;min-width:28px;text-align:center;">${qty}</span>
-            <button class="btn btn-ghost btn-sm btn-icon" data-act="inc" data-id="${it.id}">+</button>
+            <span class="qty-display" data-id="${it.id}">${qty}</span>
+            <div class="qty-controls">
+              <div class="qty-row">
+                <button class="btn btn-ghost btn-sm btn-icon qty-dec" data-id="${it.id}" title="Remove 1">−</button>
+                <input  class="qty-input" type="number" min="1" step="1" placeholder="qty" data-id="${it.id}" data-dir="out" />
+                <button class="btn qty-out-btn" data-id="${it.id}" title="Stock Out">Out</button>
+              </div>
+              <div class="qty-row">
+                <button class="btn btn-ghost btn-sm btn-icon qty-inc" data-id="${it.id}" title="Add 1">+</button>
+                <input  class="qty-input" type="number" min="1" step="1" placeholder="qty" data-id="${it.id}" data-dir="in" />
+                <button class="btn qty-in-btn" data-id="${it.id}" title="Stock In">In</button>
+              </div>
+            </div>
           </div>
         </td>
         <td>${it.reorder_level ?? '—'}</td>
@@ -478,10 +488,38 @@
     $('#invFilterCategory').innerHTML = '<option value="">All Categories</option>' + cats.map(c => `<option ${c === pCat ? 'selected' : ''}>${c}</option>`).join('');
     $('#invFilterSupplier').innerHTML = '<option value="">All Suppliers</option>' + sups.map(s => `<option ${s === pSup ? 'selected' : ''}>${s}</option>`).join('');
 
-    // Bind +/- buttons
-    $$('#inventoryTbody [data-act="inc"], #inventoryTbody [data-act="dec"]').forEach(btn =>
-      btn.addEventListener('click', e => adjustQty(e.currentTarget.dataset.id, e.currentTarget.dataset.act === 'inc' ? 1 : -1))
-    );
+    // ±1 quick buttons
+    $$('#inventoryTbody .qty-inc').forEach(btn => btn.addEventListener('click', () => adjustQty(btn.dataset.id,  1)));
+    $$('#inventoryTbody .qty-dec').forEach(btn => btn.addEventListener('click', () => adjustQty(btn.dataset.id, -1)));
+
+    // Bulk In — type a number then click In (or press Enter)
+    $$('#inventoryTbody .qty-in-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const inp = btn.closest('.qty-row').querySelector('.qty-input');
+        const val = Number(inp.value);
+        if (!val || val <= 0) { toast('Enter a valid quantity to add', 'error'); inp.focus(); return; }
+        adjustQty(btn.dataset.id, val); inp.value = '';
+      });
+    });
+
+    // Bulk Out — type a number then click Out (or press Enter)
+    $$('#inventoryTbody .qty-out-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const inp = btn.closest('.qty-row').querySelector('.qty-input');
+        const val = Number(inp.value);
+        if (!val || val <= 0) { toast('Enter a valid quantity to remove', 'error'); inp.focus(); return; }
+        adjustQty(btn.dataset.id, -val); inp.value = '';
+      });
+    });
+
+    // Enter key inside qty inputs fires the button
+    $$('#inventoryTbody .qty-input').forEach(inp => {
+      inp.addEventListener('keydown', e => {
+        if (e.key !== 'Enter') return; e.preventDefault();
+        inp.closest('.qty-row').querySelector(inp.dataset.dir === 'in' ? '.qty-in-btn' : '.qty-out-btn')?.click();
+      });
+    });
+
     $$('#inventoryTbody [data-act="edit"], #inventoryTbody [data-act="restock"], #inventoryTbody [data-act="delete"]').forEach(btn =>
       btn.addEventListener('click', onInvAction)
     );
@@ -491,14 +529,38 @@
 
   function adjustQty(id, delta) {
     const it = StorageAPI.getItemById(id); if (!it) return;
-    const prev = Number(it.stock_qty) || 0;
+    const prev   = Number(it.stock_qty) || 0;
     const newQty = Math.max(0, prev + delta);
-    it.stock_qty = newQty; it.updated_at = new Date().toISOString();
+    it.stock_qty  = newQty;
+    it.updated_at = new Date().toISOString();
     StorageAPI.upsertItem(it);
-    StorageAPI.addStockLog({ item_id: id, item_name: it.name, type: delta > 0 ? 'in' : 'out', qty: Math.abs(delta), balance: newQty, note: 'Manual adjustment', date: it.updated_at });
-    const span = $(`#inventoryTbody .qty[data-id="${id}"]`); if (span) span.textContent = newQty;
+
+    const logEntry = { item_id: id, item_name: it.name, inventory_type: it.inventory_type,
+      type: delta > 0 ? 'in' : 'out', qty: Math.abs(delta), balance: newQty,
+      note: 'Manual adjustment', date: it.updated_at };
+    StorageAPI.addStockLog(logEntry);
+
+    // Update qty display inline — no full table rebuild
+    const disp = document.querySelector(`#inventoryTbody .qty-display[data-id="${id}"]`);
+    if (disp) disp.textContent = newQty;
+
+    // Update low-stock row highlight + badge inline
+    const s = StorageAPI.getSettings();
+    const rl = Number(it.reorder_level) || Number(s.lowStockThreshold) || 10;
+    const row = disp?.closest('tr');
+    if (row) {
+      row.style.background = newQty <= rl ? '#FFF5F5' : '';
+      const badge = row.querySelector('.low-badge');
+      if (newQty <= rl && !badge)
+        row.querySelector('td strong')?.insertAdjacentHTML('afterend',
+          ' <span class="low-badge" style="color:var(--red);font-size:11px;font-weight:700;">⚠ LOW</span>');
+      else if (newQty > rl && badge) badge.remove();
+    }
+
+    // Inject log row live — no full log rebuild
+    injectLogRow(logEntry);
     renderDashboard();
-    toast(`Stock updated: ${it.name} → ${newQty} ${it.unit || 'pcs'}`);
+    toast(`${delta > 0 ? '+' : ''}${delta} ${it.unit || 'pcs'} — ${it.name} → ${newQty}`);
   }
 
   function onInvAction(e) {
@@ -513,21 +575,30 @@
   }
 
   function renderStockLog() {
-    const logs = StorageAPI.getStockLog();
-    const fItem = $('#logFilterItem').value;
-    const fType = $('#logFilterType').value;
-    const fStart = $('#logFilterStart').value || null;
-    const fEnd   = $('#logFilterEnd').value || null;
-
-    // Rebuild item filter list
+    const logs  = StorageAPI.getStockLog();
     const items = StorageAPI.getInventory();
-    const pItem = $('#logFilterItem').value;
+    const fItem  = $('#logFilterItem').value;
+    const fType  = $('#logFilterType').value;
+    const fStart = $('#logFilterStart').value || null;
+    const fEnd   = $('#logFilterEnd').value   || null;
+
+    // Build item_id → inventory_type map for section scoping
+    const itemTypeMap = {};
+    items.forEach(it => { itemTypeMap[it.id] = it.inventory_type; });
+    const currentType = state.inventoryType;
+
+    // Item filter dropdown — only items from this section
+    const sectionItems = items.filter(i => i.inventory_type === currentType);
+    const pItem = fItem;
     $('#logFilterItem').innerHTML = '<option value="">All Items</option>' +
-      items.map(it => `<option value="${it.id}" ${it.id === pItem ? 'selected' : ''}>${it.name}</option>`).join('');
+      sectionItems.map(it => `<option value="${it.id}" ${it.id === pItem ? 'selected' : ''}>${it.name}</option>`).join('');
 
     const filtered = logs.filter(l => {
+      // Only show logs for items in the current inventory section
+      const logType = itemTypeMap[l.item_id] || l.inventory_type;
+      if (logType && logType !== currentType) return false;
       if (fItem && l.item_id !== fItem) return false;
-      if (fType && l.type !== fType) return false;
+      if (fType && l.type    !== fType)  return false;
       if (!inRange(l.date, fStart, fEnd)) return false;
       return true;
     }).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 300);
@@ -548,7 +619,7 @@
       const dayLogs = grouped[dk];
       const label = new Date(dk).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
 
-      html += `<tr class="stock-date-header">
+      html += `<tr class="stock-date-header" data-dk="${dk}">
         <td colspan="6">
           <button class="stock-date-toggle">
             <span class="toggle-icon">▼</span>
@@ -591,6 +662,72 @@
     });
 
     $('#exportLogCsv').onclick = () => StorageAPI.downloadCSV('stock_log.csv', filtered);
+  }
+
+
+  // Live-inject a stock log entry at top of the log table without full rebuild
+  function injectLogRow(entry) {
+    const tbody = $('#stockLogTbody');
+    if (!tbody) return;
+
+    // Section scope check
+    const itemTypeMap = {};
+    StorageAPI.getInventory().forEach(it => { itemTypeMap[it.id] = it.inventory_type; });
+    const currentType = state.inventoryType;
+    const logType = itemTypeMap[entry.item_id] || entry.inventory_type;
+    if (logType && logType !== currentType) return;
+
+    // Filter scope check
+    const fItem  = $('#logFilterItem').value;
+    const fType  = $('#logFilterType').value;
+    const fStart = $('#logFilterStart').value || null;
+    const fEnd   = $('#logFilterEnd').value   || null;
+    if (fItem && entry.item_id !== fItem) return;
+    if (fType && entry.type    !== fType)  return;
+    if (!inRange(entry.date, fStart, fEnd))  return;
+
+    const icons   = { in: '📥', out: '📤', sale: '🛒' };
+    const dk      = entry.date.slice(0, 10);
+    const isToday = dk === today();
+
+    // Build the data row
+    const dataRow = document.createElement('tr');
+    dataRow.className = 'stock-day-rows';
+    dataRow.style.display = 'table-row';
+    dataRow.innerHTML = `
+      <td style="font-size:12px;">${new Date(entry.date).toLocaleTimeString()}</td>
+      <td>${entry.item_name || '—'}</td>
+      <td>${icons[entry.type] || ''} ${entry.type}</td>
+      <td style="font-weight:700;color:${entry.type === 'in' ? 'var(--green)' : 'var(--red)'};">${entry.type === 'in' ? '+' : '-'}${entry.qty}</td>
+      <td>${entry.balance}</td>
+      <td style="font-size:12px;color:var(--muted);">${entry.note || ''}</td>`;
+
+    const existingHeader = tbody.querySelector(`.stock-date-header[data-dk="${dk}"]`);
+    if (existingHeader) {
+      existingHeader.insertAdjacentElement('afterend', dataRow);
+      const toggle = existingHeader.querySelector('.stock-date-toggle');
+      if (toggle) toggle.innerHTML = toggle.innerHTML.replace(/(\d+) entry\/entries/, (_, n) => `${Number(n)+1} entry/entries`);
+    } else {
+      const label = new Date(dk).toLocaleDateString('en-US', { weekday:'short', year:'numeric', month:'short', day:'numeric' });
+      const headerRow = document.createElement('tr');
+      headerRow.className  = 'stock-date-header';
+      headerRow.dataset.dk = dk;
+      headerRow.innerHTML  = `<td colspan="6"><button class="stock-date-toggle"><span class="toggle-icon">▼</span> ${label}${isToday?' (Today)':''} — 1 entry/entries</button></td>`;
+      headerRow.querySelector('.stock-date-toggle').addEventListener('click', ev => {
+        ev.stopPropagation();
+        const icon = headerRow.querySelector('.toggle-icon');
+        const expanded = icon.textContent === '▼';
+        let r = headerRow.nextElementSibling;
+        while (r && !r.classList.contains('stock-date-header')) {
+          if (r.classList.contains('stock-day-rows')) r.style.display = expanded ? 'none' : 'table-row';
+          r = r.nextElementSibling;
+        }
+        icon.textContent = expanded ? '▶' : '▼';
+      });
+      tbody.querySelector('.no-data-placeholder')?.closest('tr')?.remove();
+      tbody.insertBefore(dataRow,   tbody.firstChild);
+      tbody.insertBefore(headerRow, dataRow);
+    }
   }
 
   // ── ITEM DIALOG ────────────────────────────────────────────────────────────
@@ -653,10 +790,10 @@
       StorageAPI.upsertItem(item);
 
       if (isNew && newQty > 0) {
-        StorageAPI.addStockLog({ item_id: id, item_name: item.name, type: 'in', qty: newQty, balance: newQty, note: 'Initial stock', date: now });
+        StorageAPI.addStockLog({ item_id: id, item_name: item.name, inventory_type: item.inventory_type, type: 'in', qty: newQty, balance: newQty, note: 'Initial stock', date: now });
       } else if (!isNew && newQty !== prevQty) {
         const diff = newQty - prevQty;
-        StorageAPI.addStockLog({ item_id: id, item_name: item.name, type: diff > 0 ? 'in' : 'out', qty: Math.abs(diff), balance: newQty, note: 'Edited via form', date: now });
+        StorageAPI.addStockLog({ item_id: id, item_name: item.name, inventory_type: item.inventory_type, type: diff > 0 ? 'in' : 'out', qty: Math.abs(diff), balance: newQty, note: 'Edited via form', date: now });
       }
 
       $('#itemDialog').close();
@@ -687,10 +824,25 @@
       it.stock_qty = (Number(it.stock_qty) || 0) + qty;
       it.updated_at = new Date().toISOString();
       StorageAPI.upsertItem(it);
-      StorageAPI.addStockLog({ item_id: id, item_name: it.name, type: 'in', qty, balance: it.stock_qty, note: note || 'Restock', date: it.updated_at });
+      const restockEntry = { item_id: id, item_name: it.name, inventory_type: it.inventory_type,
+        type: 'in', qty, balance: it.stock_qty, note: note || 'Restock', date: it.updated_at };
+      StorageAPI.addStockLog(restockEntry);
       $('#restockDialog').close();
       toast(`${it.name} restocked +${qty} ✓`, 'success');
-      renderInventory(); renderDashboard();
+      // Update qty display inline
+      const disp2 = document.querySelector(`#inventoryTbody .qty-display[data-id="${id}"]`);
+      if (disp2) disp2.textContent = it.stock_qty;
+      const s2 = StorageAPI.getSettings();
+      const rl2 = Number(it.reorder_level) || Number(s2.lowStockThreshold) || 10;
+      const row2 = disp2?.closest('tr');
+      if (row2) {
+        row2.style.background = it.stock_qty <= rl2 ? '#FFF5F5' : '';
+        const b2 = row2.querySelector('.low-badge');
+        if (it.stock_qty <= rl2 && !b2) row2.querySelector('td strong')?.insertAdjacentHTML('afterend', ' <span class="low-badge" style="color:var(--red);font-size:11px;font-weight:700;">⚠ LOW</span>');
+        else if (it.stock_qty > rl2 && b2) b2.remove();
+      }
+      injectLogRow(restockEntry);
+      renderDashboard();
     });
   }
 
@@ -717,7 +869,7 @@
         rows.forEach(r => {
           existing.push({
             id: r.id || StorageAPI.uid('item'),
-            inventory_type: ['kitchen','beverage','stockroom'].includes((r.inventory_type||'').toLowerCase()) ? r.inventory_type.toLowerCase() : 'kitchen',
+            inventory_type: ['kitchen','beverage','stockroom','pastry','takeout'].includes((r.inventory_type||'').toLowerCase()) ? r.inventory_type.toLowerCase() : 'kitchen',
             name: r.name || '', category: r.category || '', unit: r.unit || '',
             stock_qty: Number(r.stock_qty) || 0, cost_price: Number(r.cost_price) || 0,
             sell_price: Number(r.sell_price) || 0, reorder_level: Number(r.reorder_level) || 0,
@@ -866,7 +1018,7 @@
           item.stock_qty = Math.max(0, (Number(item.stock_qty) || 0) - l.qty);
           item.updated_at = new Date().toISOString();
           StorageAPI.upsertItem(item);
-          StorageAPI.addStockLog({ item_id: l.item_id, item_name: l.item_name, type: 'sale', qty: l.qty, balance: item.stock_qty, note: `Sale ${sale.id}`, date: sale.date });
+          StorageAPI.addStockLog({ item_id: l.item_id, item_name: l.item_name, inventory_type: item.inventory_type, type: 'sale', qty: l.qty, balance: item.stock_qty, note: `Sale ${sale.id}`, date: sale.date });
         }
       });
 
@@ -920,7 +1072,7 @@
       const dayRev   = daySales.reduce((sum, s) => sum + (s.revenue || 0), 0);
       const label    = new Date(dk).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
 
-      html += `<tr class="sales-date-header">
+      html += `<tr class="sales-date-header" data-dk="${dk}">
         <td colspan="6">
           <button class="sales-date-toggle">
             <span class="toggle-icon">▼</span>
@@ -977,6 +1129,74 @@
       })));
       toast('Sales exported ✓');
     };
+  }
+
+
+  // Live-inject a new sale row into the sales history table (no refresh needed)
+  function injectSaleRow(sale) {
+    const tbody = $('#salesTbody');
+    if (!tbody) return;
+
+    // Respect active filters
+    const start = $('#salesFilterStart').value || null;
+    const end   = $('#salesFilterEnd').value   || null;
+    const term  = ($('#salesFilterItem').value || '').toLowerCase();
+    if (!inRange(sale.date, start, end)) return;
+    if (term && !sale.lines.map(l => (l.item_name || '').toLowerCase()).join(' ').includes(term)) return;
+
+    const dk      = sale.date.slice(0, 10);
+    const isToday = dk === today();
+    const items   = sale.lines.map(l => `${l.item_name} ×${l.qty}`).join(', ');
+
+    const dataRow = document.createElement('tr');
+    dataRow.className     = 'sales-day-rows';
+    dataRow.style.display = 'table-row';
+    dataRow.innerHTML = `
+      <td style="font-size:12px;">${new Date(sale.date).toLocaleTimeString()}</td>
+      <td>${items}</td>
+      <td>${cur(sale.revenue)}</td>
+      <td>${cur(sale.cogs)}</td>
+      <td style="color:var(--green);font-weight:600;">${cur(sale.gp || (sale.revenue - sale.cogs))}</td>
+      <td><button class="btn btn-danger btn-sm" data-act="del" data-id="${sale.id}">Delete</button></td>`;
+
+    dataRow.querySelector('[data-act="del"]').addEventListener('click', () => {
+      if (!confirm('Delete this sale?')) return;
+      StorageAPI.deleteSale(sale.id);
+      toast('Sale deleted'); renderSalesHistory(); renderDashboard();
+    });
+
+    const existingHeader = tbody.querySelector(`.sales-date-header[data-dk="${dk}"]`);
+    if (existingHeader) {
+      existingHeader.insertAdjacentElement('afterend', dataRow);
+      const toggle = existingHeader.querySelector('.sales-date-toggle');
+      if (toggle) {
+        toggle.innerHTML = toggle.innerHTML.replace(/(\d+) sale\(s\)/, (_, n) => `${Number(n)+1} sale(s)`);
+        const dayTotal = StorageAPI.getSales()
+          .filter(s => s.date.slice(0,10) === dk)
+          .reduce((sum, s) => sum + (s.revenue || 0), 0);
+        toggle.innerHTML = toggle.innerHTML.replace(/·&nbsp;[^<]+/, `·&nbsp;${cur(dayTotal)}`);
+      }
+    } else {
+      const label = new Date(dk).toLocaleDateString('en-US', { weekday:'short', year:'numeric', month:'short', day:'numeric' });
+      const headerRow = document.createElement('tr');
+      headerRow.className  = 'sales-date-header';
+      headerRow.dataset.dk = dk;
+      headerRow.innerHTML  = `<td colspan="6"><button class="sales-date-toggle"><span class="toggle-icon">▼</span> ${label}${isToday?' (Today)':''} — 1 sale(s) &nbsp;·&nbsp; ${cur(sale.revenue)}</button></td>`;
+      headerRow.querySelector('.sales-date-toggle').addEventListener('click', ev => {
+        ev.stopPropagation();
+        const icon = headerRow.querySelector('.toggle-icon');
+        const expanded = icon.textContent === '▼';
+        let r = headerRow.nextElementSibling;
+        while (r && !r.classList.contains('sales-date-header')) {
+          if (r.classList.contains('sales-day-rows')) r.style.display = expanded ? 'none' : 'table-row';
+          r = r.nextElementSibling;
+        }
+        icon.textContent = expanded ? '▶' : '▼';
+      });
+      tbody.querySelector('.no-data-placeholder')?.closest('tr')?.remove();
+      tbody.insertBefore(dataRow,   tbody.firstChild);
+      tbody.insertBefore(headerRow, dataRow);
+    }
   }
 
   function renderSalesWeekly() {
@@ -1549,12 +1769,9 @@
   }
 
   // ── MENU ───────────────────────────────────────────────────────────────────
-  // menuOrder: live array of { product_id, name, category, qty, price }
   const menuOrder = [];
 
-  // ── Setup (called once in boot) ───────────────────────────────────────────
   function setupMenu() {
-    // Tab switching inside menu section
     $$('#menu .tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         $$('#menu .tab-btn').forEach(b => b.classList.remove('active'));
@@ -1563,22 +1780,20 @@
         const panel = $('#' + btn.dataset.tab);
         if (panel) panel.classList.add('active');
         if (btn.dataset.tab === 'menuManageTab') renderMenuProductsTable();
-        if (btn.dataset.tab === 'menuPosTab') renderMenuBoard();
+        if (btn.dataset.tab === 'menuPosTab')    renderMenuBoard();
       });
     });
 
-    // Add product button → open dialog
     $('#addMenuProductBtn').addEventListener('click', () => openMenuProductDialog());
-
-    // Dialog cancel
     $('#menuProductDialogCancel').addEventListener('click', () => $('#menuProductDialog').close());
+    $('#addIngredientBtn').addEventListener('click', () => addIngredientRow());
 
-    // Dialog save
     $('#menuProductForm').addEventListener('submit', e => {
       e.preventDefault();
       const id       = $('#mpId').value || StorageAPI.uid('mp');
       const existing = StorageAPI.getMenuProductById(id);
       const now      = new Date().toISOString();
+      const recipes  = collectIngredientRows();
       const product  = {
         id,
         name:         $('#mpName').value.trim(),
@@ -1586,30 +1801,25 @@
         price:        Number($('#mpPrice').value) || 0,
         description:  $('#mpDescription').value.trim(),
         is_available: $('#mpAvailable').checked,
+        recipes,
         created_at:   existing ? existing.created_at : now,
         updated_at:   now
       };
       StorageAPI.upsertMenuProduct(product);
-      toast(existing ? `"${product.name}" updated ✓` : `"${product.name}" added to menu ✓`, 'success');
+      toast(existing ? `"${product.name}" updated ✓` : `"${product.name}" added ✓`, 'success');
       $('#menuProductDialog').close();
       refreshMenuCategoryList();
       renderMenuBoard();
       renderMenuProductsTable();
     });
 
-    // Order controls via event delegation
     $('#menuClearOrderBtn').addEventListener('click', () => {
       if (!menuOrder.length) return;
-      if (confirm('Clear the current order?')) {
-        menuOrder.length = 0;
-        renderOrderPad();
-        refreshMenuBadges();
-      }
+      if (confirm('Clear the current order?')) { menuOrder.length = 0; renderOrderPad(); refreshMenuBadges(); }
     });
-    $('#menuRecordSaleBtn').addEventListener('click', recordMenuSale);
+    $('#menuRecordSaleBtn').addEventListener('click',  recordMenuSale);
     $('#menuPrintReceiptBtn').addEventListener('click', printMenuReceipt);
 
-    // Board: event delegation so clicking a card always works regardless of DOM rebuild
     $('#menuBoard').addEventListener('click', e => {
       const card = e.target.closest('.menu-item-card');
       if (!card || card.classList.contains('menu-unavailable')) return;
@@ -1617,49 +1827,89 @@
       const product = StorageAPI.getMenuProductById(id);
       if (!product) return;
       const existing = menuOrder.find(o => o.product_id === id);
-      if (existing) {
-        existing.qty++;
-      } else {
-        menuOrder.push({ product_id: id, name: product.name, category: product.category, qty: 1, price: Number(product.price) || 0 });
-      }
+      if (existing) { existing.qty++; }
+      else { menuOrder.push({ product_id: id, name: product.name, category: product.category, qty: 1, price: Number(product.price) || 0 }); }
       card.classList.add('menu-item-added');
       setTimeout(() => card.classList.remove('menu-item-added'), 350);
       refreshMenuBadges();
       renderOrderPad();
     });
 
-    // Order pad: event delegation
     $('#menuOrderLines').addEventListener('click', e => {
       const btn = e.target.closest('button[data-idx]');
       if (!btn) return;
       const i = Number(btn.dataset.idx);
       if (isNaN(i) || i < 0 || i >= menuOrder.length) return;
-      if (btn.classList.contains('ol-minus')) {
-        menuOrder[i].qty--;
-        if (menuOrder[i].qty <= 0) menuOrder.splice(i, 1);
-      } else if (btn.classList.contains('ol-plus')) {
-        menuOrder[i].qty++;
-      } else if (btn.classList.contains('ol-remove')) {
-        menuOrder.splice(i, 1);
-      }
-      renderOrderPad();
-      refreshMenuBadges();
+      if      (btn.classList.contains('ol-minus'))  { menuOrder[i].qty--; if (menuOrder[i].qty <= 0) menuOrder.splice(i, 1); }
+      else if (btn.classList.contains('ol-plus'))   { menuOrder[i].qty++; }
+      else if (btn.classList.contains('ol-remove')) { menuOrder.splice(i, 1); }
+      renderOrderPad(); refreshMenuBadges();
     });
 
-    // Search & filter
-    $('#menuSearch').addEventListener('input', renderMenuBoard);
+    $('#menuSearch').addEventListener('input',    renderMenuBoard);
     $('#menuFilterCat').addEventListener('change', renderMenuBoard);
+  }
+
+  // ── Ingredient row helpers ─────────────────────────────────────────────────
+  function buildInvOptions(selectedId) {
+    const sorted = [...StorageAPI.getInventory()].sort((a, b) => (a.name||'').localeCompare(b.name||''));
+    return '<option value="">— Select ingredient —</option>' +
+      sorted.map(it =>
+        `<option value="${it.id}" data-unit="${it.unit||''}" ${it.id === selectedId ? 'selected' : ''}>${it.name}${it.unit ? ' ('+it.unit+')' : ''} [${it.inventory_type}]</option>`
+      ).join('');
+  }
+
+  function addIngredientRow(data = {}) {
+    const container = $('#ingredientRows');
+    const emptyMsg  = $('#ingredientEmptyMsg');
+    if (emptyMsg) emptyMsg.style.display = 'none';
+    const row = document.createElement('div');
+    row.className = 'ingredient-row';
+    row.innerHTML = `
+      <select class="ing-item-sel">${buildInvOptions(data.inventory_item_id || '')}</select>
+      <input  class="ing-qty" type="number" step="0.001" min="0.001" placeholder="Qty" value="${data.quantity || ''}" />
+      <span   class="ing-unit">${data.unit || ''}</span>
+      <button type="button" class="ing-remove btn btn-ghost btn-sm btn-icon" title="Remove">✕</button>`;
+    const sel  = row.querySelector('.ing-item-sel');
+    const unit = row.querySelector('.ing-unit');
+    sel.addEventListener('change', () => { unit.textContent = sel.options[sel.selectedIndex]?.dataset.unit || ''; });
+    row.querySelector('.ing-remove').addEventListener('click', () => {
+      row.remove();
+      if (!container.children.length && emptyMsg) emptyMsg.style.display = '';
+    });
+    container.appendChild(row);
+  }
+
+  function collectIngredientRows() {
+    return $$('#ingredientRows .ingredient-row').reduce((acc, row) => {
+      const sel = row.querySelector('.ing-item-sel');
+      const qty = Number(row.querySelector('.ing-qty').value) || 0;
+      if (!sel.value || qty <= 0) return acc;
+      const item = StorageAPI.getInventory().find(i => i.id === sel.value);
+      acc.push({
+        inventory_item_id: sel.value,
+        ingredient_name:   item ? item.name : (sel.options[sel.selectedIndex]?.text || ''),
+        quantity:          qty,
+        unit:              row.querySelector('.ing-unit').textContent.trim()
+      });
+      return acc;
+    }, []);
   }
 
   function openMenuProductDialog(id) {
     const existing = id ? StorageAPI.getMenuProductById(id) : null;
     $('#menuProductDialogTitle').textContent = existing ? 'Edit Product' : 'Add Menu Product';
-    $('#mpId').value             = existing ? existing.id : '';
-    $('#mpName').value           = existing ? existing.name : '';
-    $('#mpCategory').value       = existing ? existing.category : '';
-    $('#mpPrice').value          = existing ? existing.price : '';
-    $('#mpDescription').value    = existing ? (existing.description || '') : '';
-    $('#mpAvailable').checked    = existing ? existing.is_available !== false : true;
+    $('#mpId').value          = existing ? existing.id : '';
+    $('#mpName').value        = existing ? existing.name : '';
+    $('#mpCategory').value    = existing ? existing.category : '';
+    $('#mpPrice').value       = existing ? existing.price : '';
+    $('#mpDescription').value = existing ? (existing.description || '') : '';
+    $('#mpAvailable').checked = existing ? existing.is_available !== false : true;
+    $('#ingredientRows').innerHTML = '';
+    const emptyMsg = $('#ingredientEmptyMsg');
+    const recipes  = existing ? (existing.recipes || []) : [];
+    if (recipes.length) { if (emptyMsg) emptyMsg.style.display = 'none'; recipes.forEach(r => addIngredientRow(r)); }
+    else { if (emptyMsg) emptyMsg.style.display = ''; }
     $('#menuProductDialog').showModal();
     setTimeout(() => $('#mpName').focus(), 50);
   }
@@ -1670,10 +1920,25 @@
     if (dl) dl.innerHTML = cats.map(c => `<option value="${c}">`).join('');
   }
 
-  // ── POS Board ─────────────────────────────────────────────────────────────
+  function getProductStockStatus(product) {
+    const recipes = product.recipes || [];
+    if (!recipes.length) return 'ok';
+    const inv = StorageAPI.getInventory();
+    const threshold = Number(StorageAPI.getSettings().lowStockThreshold) || 10;
+    let status = 'ok';
+    for (const r of recipes) {
+      const item  = inv.find(i => i.id === r.inventory_item_id);
+      if (!item) continue;
+      const stock = Number(item.stock_qty) || 0;
+      const need  = Number(r.quantity)    || 0;
+      if (stock < need)              return 'out';
+      if (stock - need <= threshold) status = 'low';
+    }
+    return status;
+  }
+
   function renderMenu() {
     refreshMenuCategoryList();
-    // Populate category filter dropdown
     const products = StorageAPI.getMenuProducts();
     const cats = Array.from(new Set(products.map(p => p.category).filter(Boolean))).sort();
     const sel  = $('#menuFilterCat');
@@ -1688,97 +1953,65 @@
     const products  = StorageAPI.getMenuProducts();
     const search    = ($('#menuSearch').value || '').toLowerCase().trim();
     const catFilter = $('#menuFilterCat').value;
-
     const available = products.filter(p => p.is_available !== false);
     const filtered  = available.filter(p => {
       if (catFilter && p.category !== catFilter) return false;
-      if (search) {
-        const hay = ((p.name || '') + ' ' + (p.category || '') + ' ' + (p.description || '')).toLowerCase();
-        if (!hay.includes(search)) return false;
-      }
+      if (search) { const hay = ((p.name||'')+' '+(p.category||'')+' '+(p.description||'')).toLowerCase(); if (!hay.includes(search)) return false; }
       return true;
     });
-
     const board = $('#menuBoard');
-
     if (!products.length) {
-      board.innerHTML = `<div class="no-data-placeholder" style="padding:40px 20px;">
-        <div style="font-size:40px;margin-bottom:12px;">🍽️</div>
-        <strong>No menu products yet.</strong><br>
-        Click <strong>+ Add Product</strong> to add your first dish or drink.
-      </div>`;
+      board.innerHTML = `<div class="no-data-placeholder" style="padding:40px 20px;"><div style="font-size:40px;margin-bottom:12px;">🍽️</div><strong>No menu products yet.</strong><br>Click <strong>+ Add Product</strong> to add your first dish or drink.</div>`;
       return;
     }
-
-    if (!filtered.length) {
-      board.innerHTML = `<div class="no-data-placeholder">No products match your search.</div>`;
-      return;
-    }
-
-    // Group by category
+    if (!filtered.length) { board.innerHTML = `<div class="no-data-placeholder">No products match your search.</div>`; return; }
     const byCategory = {};
-    filtered.forEach(p => {
-      const c = p.category || 'Other';
-      (byCategory[c] = byCategory[c] || []).push(p);
-    });
-
-    board.innerHTML = Object.entries(byCategory)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([cat, prods]) => `
-        <div class="menu-category-block">
-          <div class="menu-category-label">${cat}</div>
-          <div class="menu-items-grid">
-            ${prods.map(p => {
-              const inOrder = menuOrder.find(o => o.product_id === p.id);
-              return `<div class="menu-item-card" data-id="${p.id}">
-                ${inOrder ? `<div class="menu-in-order-badge">×${inOrder.qty}</div>` : ''}
-                <div class="menu-item-name">${p.name}</div>
-                ${p.description ? `<div class="menu-item-desc">${p.description}</div>` : ''}
-                <div class="menu-item-price">${cur(p.price)}</div>
-              </div>`;
-            }).join('')}
-          </div>
-        </div>`)
-      .join('');
+    filtered.forEach(p => { const c = p.category || 'Other'; (byCategory[c] = byCategory[c] || []).push(p); });
+    board.innerHTML = Object.entries(byCategory).sort((a, b) => a[0].localeCompare(b[0])).map(([cat, prods]) => `
+      <div class="menu-category-block">
+        <div class="menu-category-label">${cat}</div>
+        <div class="menu-items-grid">
+          ${prods.map(p => {
+            const inOrder = menuOrder.find(o => o.product_id === p.id);
+            const status  = getProductStockStatus(p);
+            const isOut   = status === 'out';
+            const badge   = isOut ? `<div class="menu-stock-badge out">⛔ Out of stock</div>` : status === 'low' ? `<div class="menu-stock-badge low">⚠️ Low stock</div>` : '';
+            return `<div class="menu-item-card${isOut ? ' menu-unavailable' : ''}" data-id="${p.id}">
+              ${inOrder ? `<div class="menu-in-order-badge">×${inOrder.qty}</div>` : ''}
+              <div class="menu-item-name">${p.name}</div>
+              ${p.description ? `<div class="menu-item-desc">${p.description}</div>` : ''}
+              <div class="menu-item-price">${cur(p.price)}</div>
+              ${badge}
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`).join('');
   }
 
-  // Update just the badges without rebuilding cards
   function refreshMenuBadges() {
     $$('#menuBoard .menu-item-card').forEach(card => {
       const id    = card.dataset.id;
       let badge   = card.querySelector('.menu-in-order-badge');
       const order = menuOrder.find(o => o.product_id === id);
       if (order) {
-        if (!badge) {
-          badge = document.createElement('div');
-          badge.className = 'menu-in-order-badge';
-          card.insertBefore(badge, card.firstChild);
-        }
+        if (!badge) { badge = document.createElement('div'); badge.className = 'menu-in-order-badge'; card.insertBefore(badge, card.firstChild); }
         badge.textContent = `×${order.qty}`;
-      } else {
-        if (badge) badge.remove();
-      }
+      } else { if (badge) badge.remove(); }
     });
   }
 
-  // ── Order Pad ─────────────────────────────────────────────────────────────
   function renderOrderPad() {
     const pad = $('#menuOrderLines');
-
     if (!menuOrder.length) {
-      pad.innerHTML = `<div style="text-align:center;padding:20px 8px;color:var(--muted);font-size:13px;">
-        👆 Tap a product to add it
-      </div>`;
-      $('#menuSubtotal').textContent    = cur(0);
-      $('#menuTotal').textContent       = cur(0);
-      $('#menuOrderCount').textContent  = '0 items';
+      pad.innerHTML = `<div style="text-align:center;padding:20px 8px;color:var(--muted);font-size:13px;">👆 Tap a product to add it</div>`;
+      $('#menuSubtotal').textContent   = cur(0);
+      $('#menuTotal').textContent      = cur(0);
+      $('#menuOrderCount').textContent = '0 items';
       return;
     }
-
     let total = 0;
     pad.innerHTML = menuOrder.map((line, i) => {
-      const lineTotal = line.qty * line.price;
-      total += lineTotal;
+      const lt = line.qty * line.price; total += lt;
       return `<div class="order-line">
         <div class="order-line-name">${line.name}</div>
         <div class="order-line-controls">
@@ -1786,66 +2019,92 @@
           <span class="ol-qty">${line.qty}</span>
           <button class="ol-plus btn btn-ghost btn-sm btn-icon" data-idx="${i}">+</button>
         </div>
-        <div class="order-line-price">${cur(lineTotal)}</div>
+        <div class="order-line-price">${cur(lt)}</div>
         <button class="ol-remove btn btn-ghost btn-sm btn-icon" data-idx="${i}" title="Remove">✕</button>
       </div>`;
     }).join('');
-
     const totalItems = menuOrder.reduce((s, o) => s + o.qty, 0);
-    $('#menuSubtotal').textContent    = cur(total);
-    $('#menuTotal').textContent       = cur(total);
-    $('#menuOrderCount').textContent  = `${totalItems} item${totalItems !== 1 ? 's' : ''}`;
+    $('#menuSubtotal').textContent   = cur(total);
+    $('#menuTotal').textContent      = cur(total);
+    $('#menuOrderCount').textContent = `${totalItems} item${totalItems !== 1 ? 's' : ''}`;
   }
 
-  // ── Record Sale from Menu ──────────────────────────────────────────────────
   function recordMenuSale() {
     if (!menuOrder.length) { toast('Add at least one product to the order', 'error'); return; }
 
-    // Build sale lines — menu products have no inventory link (cost_price = 0)
-    const lines = menuOrder.map(o => ({
-      item_id:    o.product_id,   // store product_id as item_id for reports
-      item_name:  o.name,
-      qty:        o.qty,
-      sell_price: o.price,
-      cost_price: 0               // no COGS since menu ≠ inventory
-    }));
+    const inv       = StorageAPI.getInventory();
+    const threshold = Number(StorageAPI.getSettings().lowStockThreshold) || 10;
 
-    const sale = {
-      id:    StorageAPI.uid('sale'),
-      date:  new Date().toISOString(),
-      lines,
-      ...Calc.saleTotals({ lines })
-    };
+    // Build consolidated deduction map
+    const deductMap = {};
+    for (const ol of menuOrder) {
+      const product = StorageAPI.getMenuProductById(ol.product_id);
+      for (const r of (product?.recipes || [])) {
+        if (!r.inventory_item_id) continue;
+        const needed = Number(r.quantity) * ol.qty;
+        if (!deductMap[r.inventory_item_id]) {
+          deductMap[r.inventory_item_id] = { item: inv.find(i => i.id === r.inventory_item_id) || null, ingredient_name: r.ingredient_name, unit: r.unit || '', needed: 0 };
+        }
+        deductMap[r.inventory_item_id].needed += needed;
+      }
+    }
 
+    // Block if any ingredient is short
+    const short = Object.values(deductMap).filter(d => d.item && d.needed > (Number(d.item.stock_qty) || 0));
+    if (short.length) {
+      alert(`❌ Cannot record sale — insufficient ingredients:\n\n${
+        short.map(d => `• ${d.ingredient_name}: need ${d.needed}${d.unit}, only ${Number(d.item.stock_qty)||0}${d.unit} left`).join('\n')
+      }\n\nPlease restock before proceeding.`);
+      return;
+    }
+
+    // Record the sale
+    const saleLines = menuOrder.map(o => ({ item_id: o.product_id, item_name: o.name, qty: o.qty, sell_price: o.price, cost_price: 0 }));
+    const sale = { id: StorageAPI.uid('sale'), date: new Date().toISOString(), lines: saleLines, ...Calc.saleTotals({ lines: saleLines }) };
     StorageAPI.addSale(sale);
 
+    // Inject into sales history table instantly
+    injectSaleRow(sale);
+
+    // Deduct each ingredient from inventory + write log + inject log row live
+    const nowLow = [];
+    for (const [itemId, d] of Object.entries(deductMap)) {
+      if (!d.item) continue;
+      const prevQty = Number(d.item.stock_qty) || 0;
+      const newQty  = Math.max(0, prevQty - d.needed);
+      d.item.stock_qty  = newQty;
+      d.item.updated_at = sale.date;
+      StorageAPI.upsertItem(d.item);
+      const logEntry = { item_id: itemId, item_name: d.ingredient_name, inventory_type: d.item.inventory_type, type: 'sale', qty: d.needed, balance: newQty, note: `Menu sale — ${sale.id}`, date: sale.date };
+      StorageAPI.addStockLog(logEntry);
+      injectLogRow(logEntry);
+      if (newQty <= threshold) nowLow.push(`${d.ingredient_name} (${newQty}${d.unit} left)`);
+    }
+    if (nowLow.length) toast(`⚠️ Low stock: ${nowLow.join(', ')}`, 'error');
+
     const tableNote = $('#menuOrderNote').value.trim();
-    const label     = tableNote ? `"${tableNote}" — ` : '';
-    toast(`Sale recorded! ${label}${cur(sale.revenue)} ✓`, 'success');
+    const deducted  = Object.keys(deductMap).length;
+    toast(`Sale recorded! ${tableNote ? `"${tableNote}" — ` : ''}${cur(sale.revenue)} ✓${deducted ? ` · ${deducted} ingredient${deducted>1?'s':''} deducted` : ''}`, 'success');
 
-    // Show inline confirmation banner
     const noteEl = $('#menuReceiptNote');
-    noteEl.textContent   = `✅ Sale recorded! Total: ${cur(sale.revenue)}`;
+    noteEl.textContent   = `✅ Sale recorded! Total: ${cur(sale.revenue)}${deducted ? ' · Inventory updated' : ''}`;
     noteEl.style.display = 'block';
-    setTimeout(() => { noteEl.style.display = 'none'; }, 4000);
+    setTimeout(() => { noteEl.style.display = 'none'; }, 4500);
 
-    // Reset
     menuOrder.length = 0;
     $('#menuOrderNote').value = '';
     renderOrderPad();
     renderMenuBoard();
+    renderInventory();
     renderDashboard();
   }
 
-  // ── Print Receipt ──────────────────────────────────────────────────────────
   function printMenuReceipt() {
     if (!menuOrder.length) { toast('Add products before printing', 'error'); return; }
     const tableNote = $('#menuOrderNote').value.trim();
     const total     = menuOrder.reduce((s, o) => s + o.qty * o.price, 0);
     const now       = new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
-    const settings  = StorageAPI.getSettings();
-
-    const win = window.open('', '_blank', 'width=380,height=640');
+    const win       = window.open('', '_blank', 'width=380,height=640');
     if (!win) { toast('Allow pop-ups to print receipts', 'error'); return; }
     win.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
     <style>
@@ -1857,91 +2116,57 @@
       table{width:100%;border-collapse:collapse;}
       td{padding:4px 0;vertical-align:top;font-size:12px;}
       td.r{text-align:right;white-space:nowrap;padding-left:8px;}
-      .item-name{font-weight:600;font-size:13px;}
-      .item-sub{font-size:10px;color:#666;}
+      .item-name{font-weight:600;font-size:13px;} .item-sub{font-size:10px;color:#666;}
       hr{border:none;border-top:1px dashed #aaa;margin:10px 0;}
-      .total-label{font-weight:700;font-size:15px;}
-      .total-amt{font-weight:700;font-size:15px;text-align:right;}
+      .total-label{font-weight:700;font-size:15px;} .total-amt{font-weight:700;font-size:15px;text-align:right;}
       .footer{text-align:center;color:#999;font-size:10px;margin-top:16px;line-height:2;}
       @media print{body{padding:4px;}}
     </style></head><body>
-    <h1>🍽️ RESERVE</h1>
-    <div class="tagline">Restaurant Manager</div>
-    <div class="meta">
-      ${now}
-      ${tableNote ? `<br><strong>${tableNote}</strong>` : ''}
-    </div>
+    <h1>🍽️ RESERVE</h1><div class="tagline">Restaurant Manager</div>
+    <div class="meta">${now}${tableNote ? `<br><strong>${tableNote}</strong>` : ''}</div>
     <hr>
-    <table>
-      ${menuOrder.map(o => `
-        <tr>
-          <td>
-            <div class="item-name">${o.name}</div>
-            <div class="item-sub">${o.qty} × ${cur(o.price)}</div>
-          </td>
-          <td class="r">${cur(o.qty * o.price)}</td>
-        </tr>`).join('')}
+    <table>${menuOrder.map(o => `
+      <tr><td><div class="item-name">${o.name}</div><div class="item-sub">${o.qty} × ${cur(o.price)}</div></td><td class="r">${cur(o.qty * o.price)}</td></tr>`).join('')}
     </table>
     <hr>
-    <table>
-      <tr>
-        <td class="total-label">TOTAL</td>
-        <td class="total-amt">${cur(total)}</td>
-      </tr>
-    </table>
-    <div class="footer">
-      Thank you for dining with us!<br>
-      Please come again 😊
-    </div>
+    <table><tr><td class="total-label">TOTAL</td><td class="total-amt">${cur(total)}</td></tr></table>
+    <div class="footer">Thank you for dining with us!<br>Please come again 😊</div>
     <script>window.onload = () => { window.print(); };<\/script>
     </body></html>`);
     win.document.close();
   }
 
-  // ── Manage Products Table ──────────────────────────────────────────────────
   function renderMenuProductsTable() {
     const products = StorageAPI.getMenuProducts();
-    const sorted   = [...products].sort((a, b) =>
-      (a.category || '').localeCompare(b.category || '') ||
-      (a.name || '').localeCompare(b.name || '')
-    );
-
+    const sorted   = [...products].sort((a, b) => (a.category||'').localeCompare(b.category||'') || (a.name||'').localeCompare(b.name||''));
     const tbody = $('#menuProductsTbody');
-    if (!sorted.length) {
-      tbody.innerHTML = `<tr><td colspan="6" class="no-data-placeholder">No products yet — click <strong>+ Add Product</strong> to get started.</td></tr>`;
-      return;
-    }
-
-    tbody.innerHTML = sorted.map(p => `
-      <tr>
+    if (!sorted.length) { tbody.innerHTML = `<tr><td colspan="7" class="no-data-placeholder">No products yet — click <strong>+ Add Product</strong> to get started.</td></tr>`; return; }
+    tbody.innerHTML = sorted.map(p => {
+      const recipes = p.recipes || [];
+      const recipeLabel = recipes.length
+        ? `<span style="font-size:12px;font-weight:600;color:var(--green);">✅ ${recipes.length} ingredient${recipes.length !== 1 ? 's' : ''}</span>`
+        : `<span style="font-size:12px;color:var(--muted);">— none</span>`;
+      return `<tr>
         <td><strong>${p.name}</strong></td>
         <td><span class="chip" style="margin:0;">${p.category || '—'}</span></td>
         <td style="font-weight:700;color:var(--green);">${cur(p.price)}</td>
         <td style="font-size:12px;color:var(--muted);">${p.description || '—'}</td>
-        <td>
-          <span style="font-size:12px;font-weight:600;color:${p.is_available !== false ? 'var(--green)' : 'var(--red)'};">
-            ${p.is_available !== false ? '✅ Yes' : '❌ No'}
-          </span>
-        </td>
-        <td>
+        <td>${recipeLabel}</td>
+        <td><span style="font-size:12px;font-weight:600;color:${p.is_available !== false ? 'var(--green)' : 'var(--red)'};">${p.is_available !== false ? '✅ Yes' : '❌ No'}</span></td>
+        <td style="white-space:nowrap;">
           <button class="btn btn-secondary btn-sm" data-mp-edit="${p.id}">✏️ Edit</button>
           <button class="btn btn-danger btn-sm" data-mp-del="${p.id}" style="margin-left:4px;">🗑️</button>
         </td>
-      </tr>`).join('');
-
-    tbody.querySelectorAll('[data-mp-edit]').forEach(btn =>
-      btn.addEventListener('click', () => openMenuProductDialog(btn.dataset.mpEdit))
-    );
-    tbody.querySelectorAll('[data-mp-del]').forEach(btn =>
-      btn.addEventListener('click', () => {
-        const p = StorageAPI.getMenuProductById(btn.dataset.mpDel);
-        if (!p || !confirm(`Delete "${p.name}" from the menu?`)) return;
-        StorageAPI.deleteMenuProduct(btn.dataset.mpDel);
-        toast(`"${p.name}" removed from menu`, 'success');
-        renderMenuProductsTable();
-        renderMenuBoard();
-      })
-    );
+      </tr>`;
+    }).join('');
+    tbody.querySelectorAll('[data-mp-edit]').forEach(btn => btn.addEventListener('click', () => openMenuProductDialog(btn.dataset.mpEdit)));
+    tbody.querySelectorAll('[data-mp-del]').forEach(btn => btn.addEventListener('click', () => {
+      const p = StorageAPI.getMenuProductById(btn.dataset.mpDel);
+      if (!p || !confirm(`Delete "${p.name}" from the menu?`)) return;
+      StorageAPI.deleteMenuProduct(btn.dataset.mpDel);
+      toast(`"${p.name}" removed from menu`, 'success');
+      renderMenuProductsTable(); renderMenuBoard();
+    }));
   }
 
   // ── SETTINGS ───────────────────────────────────────────────────────────────
@@ -2164,7 +2389,7 @@
   function printInventory() {
     const items = StorageAPI.getInventory();
     const type  = state.inventoryType;
-    const labels = { kitchen: '🍳 Kitchen Stock', beverage: '🥤 Beverage Stock', stockroom: '📦 Stock Room' };
+    const labels = { kitchen: '🍳 Kitchen Stock', beverage: '🥤 Beverage Stock', stockroom: '📦 Stock Room', pastry: '🥐 Pastry Stock', takeout: '🥡 Takeout Stock' };
     const filtered = items.filter(i => i.inventory_type === type);
 
     const body = `
