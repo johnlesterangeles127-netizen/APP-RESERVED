@@ -70,6 +70,8 @@
         <li><button class="nav-link" data-section="inventory" data-type="kitchen">🍳 Kitchen</button></li>
         <li><button class="nav-link" data-section="inventory" data-type="beverage">🥤 Beverage</button></li>
         <li><button class="nav-link" data-section="inventory" data-type="stockroom">📦 Stock Room</button></li>
+        <li><button class="nav-link" data-section="inventory" data-type="pastry">🥐 Pastry</button></li>
+        <li><button class="nav-link" data-section="inventory" data-type="takeout">🥡 Takeout</button></li>
         <li><button class="nav-link" data-section="menu">🍽️ Menu</button></li>
         <li><button class="nav-link" data-section="sales">💰 Sales</button></li>
         <li><button class="nav-link" data-section="expenses">🧾 Expenses</button></li>
@@ -272,7 +274,7 @@
               <thead>
                 <tr>
                   <th>Product Name</th><th>Category</th><th>Price (₱)</th>
-                  <th>Description</th><th>Available</th><th>Actions</th>
+                  <th>Description</th><th>Ingredients</th><th>Available</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody id="menuProductsTbody" class="zebra"></tbody>
@@ -282,7 +284,7 @@
       </section>
 
       <!-- ADD/EDIT MENU PRODUCT DIALOG -->
-      <dialog id="menuProductDialog">
+      <dialog id="menuProductDialog" style="max-width:660px;width:96vw;">
         <h3 id="menuProductDialogTitle">Add Menu Product</h3>
         <form id="menuProductForm">
           <div class="form-grid">
@@ -309,7 +311,19 @@
               </label>
             </div>
           </div>
-          <div class="form-actions">
+          <!-- Ingredients / Recipe -->
+          <div class="recipe-section">
+            <div class="recipe-section-header">
+              <div>
+                <strong>🧂 Ingredients / Recipe</strong>
+                <span class="recipe-hint">Linked ingredients are auto-deducted from inventory on each sale</span>
+              </div>
+              <button type="button" id="addIngredientBtn" class="btn btn-secondary btn-sm">+ Add Ingredient</button>
+            </div>
+            <div id="ingredientRows"></div>
+            <p id="ingredientEmptyMsg" style="font-size:12px;color:var(--muted);margin:6px 0 0;">No ingredients yet. Click "+ Add Ingredient" to link inventory items to this product.</p>
+          </div>
+          <div class="form-actions" style="margin-top:16px;">
             <button type="submit" class="btn btn-primary">💾 Save Product</button>
             <button type="button" id="menuProductDialogCancel" class="btn btn-secondary">Cancel</button>
           </div>
@@ -653,6 +667,8 @@
         <option value="kitchen">🍳 Kitchen Stock</option>
         <option value="beverage">🥤 Beverage Stock</option>
         <option value="stockroom">📦 Stock Room</option>
+        <option value="pastry">🥐 Pastry Stock</option>
+        <option value="takeout">🥡 Takeout Stock</option>
       </select>
     </div>
     <div class="form-grid">
