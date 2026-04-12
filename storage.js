@@ -115,7 +115,7 @@
         case 'stock_log':
           cache.stockLog = rows; break;
         case 'menu_products':
-          cache.menuProducts = rows; break;
+          cache.menuProducts = rows.map(p => ({ ...p, recipes: _parseJ(p.recipes, []) })); break;
       }
     } catch(e) {
       console.error(`❌ Failed to load ${table}:`, e.message || e);
@@ -317,12 +317,14 @@
   function getMenuProductById(id) { return cache.menuProducts.find(p => p.id === id) || null; }
 
   function upsertMenuProduct(product) {
+    const cached = { ...product, recipes: _parseJ(product.recipes, []) };
     const idx = cache.menuProducts.findIndex(p => p.id === product.id);
-    if (idx >= 0) cache.menuProducts[idx] = product; else cache.menuProducts.push(product);
+    if (idx >= 0) cache.menuProducts[idx] = cached; else cache.menuProducts.push(cached);
+    const dbRow = { ...product, recipes: JSON.stringify(product.recipes || []) };
     _save(`upsert menu_products [${product.name}]`,
-      db.from('menu_products').upsert(product, { onConflict: 'id' })
+      db.from('menu_products').upsert(dbRow, { onConflict: 'id' })
     );
-    return product;
+    return cached;
   }
 
   function deleteMenuProduct(id) {
