@@ -241,6 +241,22 @@
     });
 
     $('#dashPrintBtn').addEventListener('click', printDashboard);
+
+    // Populate year selector + re-render chart on change
+    const yearSel = $('#dashChartYear');
+    if (yearSel) {
+      const currentYear = new Date().getFullYear();
+      const sales = StorageAPI.getSales();
+      // Collect all years that have data + current year + 4 years back
+      const yearSet = new Set([String(currentYear)]);
+      for (let y = currentYear - 4; y < currentYear; y++) yearSet.add(String(y));
+      sales.forEach(s => yearSet.add(s.date.slice(0, 4)));
+      const sortedYears = Array.from(yearSet).sort((a, b) => b - a);
+      yearSel.innerHTML = sortedYears
+        .map(y => `<option value="${y}" ${y === String(currentYear) ? 'selected' : ''}>${y}</option>`)
+        .join('');
+      yearSel.addEventListener('change', renderDashboard);
+    }
   }
 
   function renderDashboard() {
@@ -317,9 +333,10 @@
       saveMonthlySnapshot(topByCat);
     }
 
-    // Chart always shows last 12 months (overview)
-    const grouped = Calc.groupByMonthlyTotals(sales, expenses, 12);
-    $('#dashChartLabel').textContent = 'Sales vs Expenses — Last 12 Months';
+    // Chart — fixed Jan to Dec for selected year
+    const chartYear = Number($('#dashChartYear').value) || new Date().getFullYear();
+    const grouped   = Calc.groupByCalendarYear(sales, expenses, chartYear);
+    $('#dashChartLabel').textContent = `Sales vs Expenses — Jan to Dec ${chartYear}`;
     renderDashChart(grouped);
 
     // Low stock alerts
