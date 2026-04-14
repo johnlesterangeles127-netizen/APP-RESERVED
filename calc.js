@@ -110,6 +110,33 @@
     return { labels, salesTotals, expTotals };
   }
 
+  // Fixed January → December for a specific year — always 12 bars, Jan on the left
+  function groupByCalendarYear(sales, expenses, year, defaultTaxPct=0) {
+    const monthNames  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const labels      = [];
+    const salesTotals = [];
+    const expTotals   = [];
+
+    for (let m = 0; m < 12; m++) {
+      const monthStart = new Date(year, m, 1).toISOString().slice(0, 10);
+      const monthEnd   = new Date(year, m + 1, 0).toISOString().slice(0, 10);
+
+      labels.push(monthNames[m]);
+
+      const salesMonth = sales
+        .filter(s => s.date.slice(0, 10) >= monthStart && s.date.slice(0, 10) <= monthEnd)
+        .reduce((sum, s) => sum + saleTotals(s, defaultTaxPct).revenue, 0);
+
+      const expMonth = expenses
+        .filter(e => e.date.slice(0, 10) >= monthStart && e.date.slice(0, 10) <= monthEnd)
+        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+      salesTotals.push(salesMonth);
+      expTotals.push(expMonth);
+    }
+    return { labels, salesTotals, expTotals };
+  }
+
   function topSellingItems(sales, defaultTaxPct=0, limit=10) {
     const map = new Map();
     sales.forEach(sale => sale.lines.forEach(line => {
@@ -287,7 +314,7 @@
     stockValue, totalStockValue,
     lineTotals, saleTotals,
     sumExpenses, sumSalesRevenue, sumSalesCogs, sumSalesGP, netProfit,
-    groupByDateTotals, groupByMonthlyTotals, topSellingItems, topSellingByCategory, topSellingCurrentMonth, topItemsMonthlyTrend,
+    groupByDateTotals, groupByMonthlyTotals, groupByCalendarYear, topSellingItems, topSellingByCategory, topSellingCurrentMonth, topItemsMonthlyTrend,
     withinDate
   };
 })();
