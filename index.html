@@ -135,7 +135,10 @@
         </div>
 
         <div class="card chart-card" style="margin-bottom:16px;">
-          <div class="card-header" id="dashChartLabel">Sales vs Expenses — Last 12 Months</div>
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <span id="dashChartLabel">Sales vs Expenses — Jan to Dec</span>
+            <select id="dashChartYear" style="font-size:13px;font-weight:600;padding:3px 10px;border:1.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);cursor:pointer;"></select>
+          </div>
           <canvas id="salesExpensesChart"></canvas>
         </div>
 
