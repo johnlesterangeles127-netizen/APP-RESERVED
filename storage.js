@@ -349,4 +349,4 @@
     getMonthlyRecord, getCurrentMonthKey,
     getMenuProducts, getMenuProductById, upsertMenuProduct, deleteMenuProduct
   };
-})();
+})();s
