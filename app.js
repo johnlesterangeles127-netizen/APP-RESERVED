@@ -340,10 +340,14 @@
     renderDashChart(grouped);
 
     // Low stock alerts
-    const low = items.filter(i => (Number(i.stock_qty) || 0) <= (Number(i.reorder_level) || threshold));
+    const low = items.filter(i => {
+      const qty = Number(i.stock_qty) || 0;
+      const rl  = Number(i.reorder_level) ?? threshold;
+      return qty <= rl;
+    });
     const alertList = $('#alertList');
     alertList.innerHTML = low.length
-      ? low.map(i => `<li class="low">⚠️ <strong>${i.name}</strong> — ${i.stock_qty} ${i.unit || 'pcs'} remaining (alert ≤ ${i.reorder_level || threshold})</li>`).join('')
+      ? low.map(i => `<li class="low">⚠️ <strong>${i.name}</strong> — ${i.stock_qty} ${i.unit || 'pcs'} remaining (alert ≤ ${Number(i.reorder_level) ?? threshold})</li>`).join('')
       : '<li class="ok">✅ All stock levels are good</li>';
   }
 
@@ -454,13 +458,17 @@
       if (search && !JSON.stringify(it).toLowerCase().includes(search)) return false;
       if (cat && it.category !== cat) return false;
       if (sup && it.supplier !== sup) return false;
-      if (lowOnly && (Number(it.stock_qty) || 0) > (Number(it.reorder_level) || threshold)) return false;
+      if (lowOnly) {
+        const qty = Number(it.stock_qty) || 0;
+        const rl  = Number(it.reorder_level) ?? threshold;
+        if (qty > rl) return false;
+      }
       return true;
     });
 
     $('#inventoryTbody').innerHTML = filtered.length ? filtered.map(it => {
       const qty = Number(it.stock_qty) || 0;
-      const rl  = Number(it.reorder_level) || threshold;
+      const rl  = Number(it.reorder_level) ?? threshold;
       const isLow = qty <= rl;
       return `<tr style="${isLow ? 'background:#FFF5F5;' : ''}">
         <td><strong>${it.name}</strong>${isLow ? ' <span style="color:var(--red);font-size:11px;font-weight:700;">⚠ LOW</span>' : ''}</td>
@@ -472,18 +480,18 @@
             <div class="qty-controls">
               <div class="qty-row">
                 <button class="btn btn-ghost btn-sm btn-icon qty-dec" data-id="${it.id}" title="Remove 1">−</button>
-                <input  class="qty-input" type="number" min="1" step="1" placeholder="qty" data-id="${it.id}" data-dir="out" />
+                <input  class="qty-input" type="number" min="0.01" step="0.01" placeholder="qty" data-id="${it.id}" data-dir="out" />
                 <button class="btn qty-out-btn" data-id="${it.id}" title="Stock Out">Out</button>
               </div>
               <div class="qty-row">
                 <button class="btn btn-ghost btn-sm btn-icon qty-inc" data-id="${it.id}" title="Add 1">+</button>
-                <input  class="qty-input" type="number" min="1" step="1" placeholder="qty" data-id="${it.id}" data-dir="in" />
+                <input  class="qty-input" type="number" min="0.01" step="0.01" placeholder="qty" data-id="${it.id}" data-dir="in" />
                 <button class="btn qty-in-btn" data-id="${it.id}" title="Stock In">In</button>
               </div>
             </div>
           </div>
         </td>
-        <td>${it.reorder_level ?? '—'}</td>
+        <td>${rl ?? '—'}</td>
         <td>${it.cost_price ? cur(it.cost_price) : '—'}</td>
         <td>${it.sell_price ? cur(it.sell_price) : '—'}</td>
         <td>${it.supplier || '—'}</td>
@@ -717,7 +725,8 @@
       <td>${icons[entry.type] || ''} ${entry.type}</td>
       <td style="font-weight:700;color:${entry.type === 'in' ? 'var(--green)' : 'var(--red)'};">${entry.type === 'in' ? '+' : '-'}${entry.qty}</td>
       <td>${entry.balance}</td>
-      <td style="font-size:12px;color:var(--muted);">${entry.note || ''}</td>`;
+      <td style="font-size:12px;color:var(--muted);">${entry.note || ''}</td>
+    `;
 
     const existingHeader = tbody.querySelector(`.stock-date-header[data-dk="${dk}"]`);
     if (existingHeader) {
@@ -1174,7 +1183,8 @@
       <td>${cur(sale.revenue)}</td>
       <td>${cur(sale.cogs)}</td>
       <td style="color:var(--green);font-weight:600;">${cur(sale.gp || (sale.revenue - sale.cogs))}</td>
-      <td><button class="btn btn-danger btn-sm" data-act="del" data-id="${sale.id}">Delete</button></td>`;
+      <td><button class="btn btn-danger btn-sm" data-act="del" data-id="${sale.id}">Delete</button></td>
+    `;
 
     dataRow.querySelector('[data-act="del"]').addEventListener('click', () => {
       if (!confirm('Delete this sale?')) return;
@@ -1619,7 +1629,7 @@
       *{box-sizing:border-box;margin:0;padding:0;}
       body{font-family:"Inter",system-ui,sans-serif;font-size:13px;color:#111;padding:32px;max-width:420px;margin:0 auto;}
       .header{text-align:center;padding-bottom:16px;border-bottom:2px solid #e5e7eb;margin-bottom:18px;}
-      .header h1{font-size:22px;font-weight:800;letter-spacing:.04em;}
+      .header h1{font-size:22px;font-weight:800;letter-spacing:1px;}
       .header p{font-size:11px;color:#888;margin-top:3px;}
       table{width:100%;border-collapse:collapse;margin-bottom:16px;}
       td{padding:6px 4px;font-size:13px;vertical-align:top;}
@@ -2219,7 +2229,9 @@
         e.preventDefault();
         const s = StorageAPI.getSettings();
         s.currency = $('#setCurrency').value.trim() || '₱';
-        s.lowStockThreshold = Number($('#setLowStockThreshold').value) || 10;
+        const threshold = Number($('#setLowStockThreshold').value) || 10;
+        if (threshold < 0.01) { toast('Minimum threshold is 0.01', 'error'); return; }
+        s.lowStockThreshold = threshold;
         StorageAPI.saveSettings(s);
         toast('Settings saved ✓', 'success');
         refreshDatalists(); renderDashboard(); renderInventory();
@@ -2577,17 +2589,22 @@
       <table>
         <thead><tr><th>#</th><th>Product</th><th>Category</th><th>Qty</th><th>Revenue</th><th>GP</th></tr></thead>
         <tbody>${topItems.map((it, i) => `<tr>
-          <td><strong>#${i + 1}</strong></td><td>${it.name}</td><td>${it.category}</td>
-          <td><strong>${it.qty}</strong></td><td>${cur(it.revenue)}</td><td class="green">${cur(it.gp)}</td>
+          <td><strong>#${i + 1}</strong></td>
+          <td>${it.name}</td>
+          <td>${it.category}</td>
+          <td><strong>${it.qty}</strong></td>
+          <td>${cur(it.revenue)}</td>
+          <td class="green">${cur(it.gp)}</td>
         </tr>`).join('') || '<tr><td colspan="6" style="color:#999;text-align:center;">No data</td></tr>'}
         </tbody>
       </table>
 
       <div class="section-title">Expenses by Category</div>
       <table>
-        <thead><tr><th>Category</th><th>Amount</th><th>% of Total</th></tr></thead>
+        <thead><tr><th>Category</th><th>Amount</th><th>Share</th></tr></thead>
         <tbody>${Object.entries(catMap).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => `<tr>
-          <td>${cat}</td><td class="red">${cur(amt)}</td>
+          <td>${cat}</td>
+          <td class="red">${cur(amt)}</td>
           <td style="color:#6b7280;">${exp ? ((amt / exp) * 100).toFixed(1) + '%' : '—'}</td>
         </tr>`).join('') || '<tr><td colspan="3" style="color:#999;text-align:center;">No expenses</td></tr>'}
         </tbody>
