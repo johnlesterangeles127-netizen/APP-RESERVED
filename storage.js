@@ -64,14 +64,14 @@
 
     // Load all 8 tables in parallel
     await Promise.all([
-      _loadTable('inventory',        'name',   true),
-      _loadTable('sales',            'date',   false),
-      _loadTable('expenses',         'date',   false),
-      _loadTable('monthly_top_items','month',  false),
-      _loadTable('staff',            'name',   true),
-      _loadTable('payroll',          'period', false),
-      _loadTable('stock_log',        'date',   false, 500),
-      _loadTable('menu_products',    'category', true)
+      _loadTable('inventory',        'created_at', true),
+      _loadTable('sales',            'date',       false),
+      _loadTable('expenses',         'date',       false),
+      _loadTable('monthly_top_items','month',      false),
+      _loadTable('staff',            'name',       true),
+      _loadTable('payroll',          'period',     false),
+      _loadTable('stock_log',        'date',       false, 500),
+      _loadTable('menu_products',    'created_at', true)
     ]);
 
     console.log('✅ RESERVE: All data loaded —',
@@ -349,4 +349,4 @@
     getMonthlyRecord, getCurrentMonthKey,
     getMenuProducts, getMenuProductById, upsertMenuProduct, deleteMenuProduct
   };
-})();s
+})();
