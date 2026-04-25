@@ -507,7 +507,7 @@
 
     // Populate filter dropdowns
     const typeItems = items.filter(i => i.inventory_type === type);
-    const cats = Array.from(new Set(typeItems.map(i => i.category).filter(Boolean))).sort();
+    const cats = Array.from(new Set(typeItems.map(i => i.category).filter(Boolean)));
     const sups = Array.from(new Set(typeItems.map(i => i.supplier).filter(Boolean))).sort();
     const pCat = $('#invFilterCategory').value, pSup = $('#invFilterSupplier').value;
     $('#invFilterCategory').innerHTML = '<option value="">All Categories</option>' + cats.map(c => `<option ${c === pCat ? 'selected' : ''}>${c}</option>`).join('');
@@ -945,7 +945,7 @@
 
     catSel.addEventListener('change', () => {
       const inv = StorageAPI.getInventory();
-      const inCat = inv.filter(i => i.category === catSel.value).sort((a, b) => a.name.localeCompare(b.name));
+      const inCat = inv.filter(i => i.category === catSel.value);
       itemSel.innerHTML = '<option value="" disabled selected>Select item…</option>' +
         inCat.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
       itemSel.disabled = false;
@@ -1942,7 +1942,7 @@
   }
 
   function refreshMenuCategoryList() {
-    const cats = Array.from(new Set(StorageAPI.getMenuProducts().map(p => p.category).filter(Boolean))).sort();
+    const cats = Array.from(new Set(StorageAPI.getMenuProducts().map(p => p.category).filter(Boolean)));
     const dl = $('#menuCategoryList');
     if (dl) dl.innerHTML = cats.map(c => `<option value="${c}">`).join('');
   }
@@ -1967,7 +1967,7 @@
   function renderMenu() {
     refreshMenuCategoryList();
     const products = StorageAPI.getMenuProducts();
-    const cats = Array.from(new Set(products.map(p => p.category).filter(Boolean))).sort();
+    const cats = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
     const sel  = $('#menuFilterCat');
     const prev = sel.value;
     sel.innerHTML = '<option value="">All Categories</option>' +
@@ -1994,7 +1994,7 @@
     if (!filtered.length) { board.innerHTML = `<div class="no-data-placeholder">No products match your search.</div>`; return; }
     const byCategory = {};
     filtered.forEach(p => { const c = p.category || 'Other'; (byCategory[c] = byCategory[c] || []).push(p); });
-    board.innerHTML = Object.entries(byCategory).sort((a, b) => a[0].localeCompare(b[0])).map(([cat, prods]) => `
+    board.innerHTML = Object.entries(byCategory).map(([cat, prods]) => `
       <div class="menu-category-block">
         <div class="menu-category-label">${cat}</div>
         <div class="menu-items-grid">
@@ -2165,7 +2165,7 @@
 
   function renderMenuProductsTable() {
     const products = StorageAPI.getMenuProducts();
-    const sorted   = [...products].sort((a, b) => (a.category||'').localeCompare(b.category||'') || (a.name||'').localeCompare(b.name||''));
+    const sorted   = [...products];
     const tbody = $('#menuProductsTbody');
     if (!sorted.length) { tbody.innerHTML = `<tr><td colspan="7" class="no-data-placeholder">No products yet — click <strong>+ Add Product</strong> to get started.</td></tr>`; return; }
     tbody.innerHTML = sorted.map(p => {
