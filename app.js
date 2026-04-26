@@ -171,19 +171,26 @@
   }
 
   // ── THEME ──────────────────────────────────────────────────────────────────
+  let _themeReady = false;
   function setupTheme() {
     const s = StorageAPI.getSettings();
     if (s.theme === 'contrast') document.documentElement.setAttribute('data-theme', 'contrast');
-    $('#themeToggle').addEventListener('click', () => {
-      const isC = document.documentElement.getAttribute('data-theme') === 'contrast';
-      if (isC) { document.documentElement.removeAttribute('data-theme'); s.theme = 'light'; }
-      else { document.documentElement.setAttribute('data-theme', 'contrast'); s.theme = 'contrast'; }
-      StorageAPI.saveSettings(s);
-    });
+    if (!_themeReady) {
+      _themeReady = true;
+      $('#themeToggle').addEventListener('click', () => {
+        const isC = document.documentElement.getAttribute('data-theme') === 'contrast';
+        if (isC) { document.documentElement.removeAttribute('data-theme'); s.theme = 'light'; }
+        else { document.documentElement.setAttribute('data-theme', 'contrast'); s.theme = 'contrast'; }
+        StorageAPI.saveSettings(s);
+      });
+    }
   }
 
   // ── NAV ────────────────────────────────────────────────────────────────────
+  let _navReady = false;
   function setupNav() {
+    if (_navReady) return;
+    _navReady = true;
     $$('.nav-link').forEach(btn => {
       btn.addEventListener('click', () => {
         const sec = btn.dataset.section;
@@ -220,8 +227,11 @@
   // Dashboard filter state
   const dashFilter = { preset: 'today', start: null, end: null };
 
+  let _dashFilterReady = false;
   function setupDashboardFilter() {
-    $('#dashFilterApply').addEventListener('click', () => {
+    if (!_dashFilterReady) {
+      _dashFilterReady = true;
+      $('#dashFilterApply').addEventListener('click', () => {
       const s = $('#dashFilterStart').value;
       const e = $('#dashFilterEnd').value;
       if (!s && !e) { toast('Pick at least one date to filter', 'error'); return; }
@@ -257,6 +267,7 @@
         .join('');
       yearSel.addEventListener('change', renderDashboard);
     }
+    } // end _dashFilterReady
   }
 
   function renderDashboard() {
@@ -783,7 +794,10 @@
     $('#itemDialog').showModal();
   }
 
+  let _itemDialogReady = false;
   function setupItemDialog() {
+    if (_itemDialogReady) return;
+    _itemDialogReady = true;
     $('#addItemBtn').addEventListener('click', () => openItemDialog());
     $('#itemDialogCancel').addEventListener('click', () => $('#itemDialog').close());
     $('#itemForm').addEventListener('submit', e => {
@@ -838,7 +852,10 @@
     $('#restockDialog').showModal();
   }
 
+  let _restockReady = false;
   function setupRestockDialog() {
+    if (_restockReady) return;
+    _restockReady = true;
     $('#restockDialogCancel').addEventListener('click', () => $('#restockDialog').close());
     $('#restockForm').addEventListener('submit', e => {
       e.preventDefault();
@@ -873,7 +890,10 @@
   }
 
   // ── INVENTORY CSV ──────────────────────────────────────────────────────────
+  let _csvReady = false;
   function setupInventoryCsv() {
+    if (_csvReady) return;
+    _csvReady = true;
     $('#exportInventoryCsv').addEventListener('click', () => {
       StorageAPI.downloadCSV('reserve_inventory.csv', StorageAPI.getInventory().map(it => ({
         id: it.id, inventory_type: it.inventory_type, name: it.name,
@@ -1003,8 +1023,11 @@
     renderSaleTotals();
   }
 
+  let _salesReady = false;
   function setupSales() {
     resetSaleForm();
+    if (_salesReady) return;
+    _salesReady = true;
 
     $('#addSaleLine').addEventListener('click', () => $('#saleLines').appendChild(createSaleLine()));
     $('#saleCancelBtn').addEventListener('click', resetSaleForm);
@@ -1304,8 +1327,11 @@
   }
 
   // ── EXPENSES ───────────────────────────────────────────────────────────────
+  let _expensesReady = false;
   function setupExpenses() {
     $('#expenseDate').value = today();
+    if (_expensesReady) return;
+    _expensesReady = true;
 
     const catSel = $('#expenseCategory'), customRow = $('#expenseCustomCategoryRow');
     catSel.addEventListener('change', () => {
@@ -1386,7 +1412,10 @@
   }
 
   // ── STAFF ──────────────────────────────────────────────────────────────────
+  let _staffReady = false;
   function setupStaff() {
+    if (_staffReady) return;
+    _staffReady = true;
     $('#addStaffBtn').addEventListener('click', () => openStaffDialog());
     $('#staffDialogCancel').addEventListener('click', () => $('#staffDialog').close());
     $('#staffForm').addEventListener('submit', e => {
@@ -1686,10 +1715,13 @@
   }
 
   // ── REPORTS ────────────────────────────────────────────────────────────────
+  let _reportsReady = false;
   function setupReports() {
     const now = new Date();
     $('#reportStart').value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
     $('#reportEnd').value   = now.toISOString().slice(0, 10);
+    if (_reportsReady) return;
+    _reportsReady = true;
     $('#reportApply').addEventListener('click', renderReports);
     $('#reportExportCsv').addEventListener('click', exportReportCsv);
   }
@@ -2255,7 +2287,10 @@
   }
 
   // ── BACKUP ─────────────────────────────────────────────────────────────────
+  let _backupReady = false;
   function setupBackup() {
+    if (_backupReady) return;
+    _backupReady = true;
     $('#backupExportBtn').addEventListener('click', () => { StorageAPI.exportJSON(); toast('Backup downloaded ✓'); });
     $('#backupImportInput').addEventListener('change', e => {
       const file = e.target.files[0]; if (!file) return;
@@ -2268,7 +2303,10 @@
   }
 
   // ── INVENTORY FILTERS SETUP ────────────────────────────────────────────────
+  let _invFiltersReady = false;
   function setupInventoryFilters() {
+    if (_invFiltersReady) return;
+    _invFiltersReady = true;
     ['invFilterCategory', 'invFilterSupplier'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('change', renderInventory); });
     const low = $('#invFilterLowStock'); if (low) low.addEventListener('change', renderInventory);
     const srch = $('#invSearch'); if (srch) srch.addEventListener('input', renderInventory);
@@ -2276,7 +2314,10 @@
   }
 
   // ── KEYBOARD NAV ───────────────────────────────────────────────────────────
+  let _keyboardReady = false;
   function setupKeyboard() {
+    if (_keyboardReady) return;
+    _keyboardReady = true;
     const keys = ['dashboard','inventory','menu','sales','expenses','staff','reports','settings'];
     document.addEventListener('keydown', e => {
       if (!e.altKey) return;
@@ -2317,7 +2358,10 @@
     win.document.close();
   }
 
+  let _printReady = false;
   function setupPrintButtons() {
+    if (_printReady) return;
+    _printReady = true;
     // Dashboard print
     const dashPrint = $('#dashPrintBtn');
     if (dashPrint) dashPrint.addEventListener('click', printDashboard);
