@@ -1798,83 +1798,90 @@
   // ── MENU ───────────────────────────────────────────────────────────────────
   const menuOrder = [];
 
+  // Guard flag — prevents duplicate event listeners when user logs out and back in
+  let _menuReady = false;
+
   function setupMenu() {
-    $$('#menu .tab-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        $$('#menu .tab-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        $$('#menu .tab-panel').forEach(p => p.classList.remove('active'));
-        const panel = $('#' + btn.dataset.tab);
-        if (panel) panel.classList.add('active');
-        if (btn.dataset.tab === 'menuManageTab') renderMenuProductsTable();
-        if (btn.dataset.tab === 'menuPosTab')    renderMenuBoard();
+    if (!_menuReady) {
+      _menuReady = true;
+
+      $$('#menu .tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          $$('#menu .tab-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          $$('#menu .tab-panel').forEach(p => p.classList.remove('active'));
+          const panel = $('#' + btn.dataset.tab);
+          if (panel) panel.classList.add('active');
+          if (btn.dataset.tab === 'menuManageTab') renderMenuProductsTable();
+          if (btn.dataset.tab === 'menuPosTab')    renderMenuBoard();
+        });
       });
-    });
 
-    $('#addMenuProductBtn').addEventListener('click', () => openMenuProductDialog());
-    $('#menuProductDialogCancel').addEventListener('click', () => $('#menuProductDialog').close());
-    $('#addIngredientBtn').addEventListener('click', () => addIngredientRow());
+      $('#addMenuProductBtn').addEventListener('click', () => openMenuProductDialog());
+      $('#menuProductDialogCancel').addEventListener('click', () => $('#menuProductDialog').close());
+      $('#addIngredientBtn').addEventListener('click', () => addIngredientRow());
 
-    $('#menuProductForm').addEventListener('submit', e => {
-      e.preventDefault();
-      const id       = $('#mpId').value || StorageAPI.uid('mp');
-      const existing = StorageAPI.getMenuProductById(id);
-      const now      = new Date().toISOString();
-      const recipes  = collectIngredientRows();
-      const product  = {
-        id,
-        name:         $('#mpName').value.trim(),
-        category:     $('#mpCategory').value.trim(),
-        price:        Number($('#mpPrice').value) || 0,
-        description:  $('#mpDescription').value.trim(),
-        is_available: $('#mpAvailable').checked,
-        recipes,
-        created_at:   existing ? existing.created_at : now,
-        updated_at:   now
-      };
-      StorageAPI.upsertMenuProduct(product);
-      toast(existing ? `"${product.name}" updated ✓` : `"${product.name}" added ✓`, 'success');
-      $('#menuProductDialog').close();
-      refreshMenuCategoryList();
-      renderMenuBoard();
-      renderMenuProductsTable();
-    });
+      $('#menuProductForm').addEventListener('submit', e => {
+        e.preventDefault();
+        const id       = $('#mpId').value || StorageAPI.uid('mp');
+        const existing = StorageAPI.getMenuProductById(id);
+        const now      = new Date().toISOString();
+        const recipes  = collectIngredientRows();
+        const product  = {
+          id,
+          name:         $('#mpName').value.trim(),
+          category:     $('#mpCategory').value.trim(),
+          price:        Number($('#mpPrice').value) || 0,
+          description:  $('#mpDescription').value.trim(),
+          is_available: $('#mpAvailable').checked,
+          recipes,
+          created_at:   existing ? existing.created_at : now,
+          updated_at:   now
+        };
+        StorageAPI.upsertMenuProduct(product);
+        toast(existing ? `"${product.name}" updated ✓` : `"${product.name}" added ✓`, 'success');
+        $('#menuProductDialog').close();
+        refreshMenuCategoryList();
+        renderMenuBoard();
+        renderMenuProductsTable();
+      });
 
-    $('#menuClearOrderBtn').addEventListener('click', () => {
-      if (!menuOrder.length) return;
-      if (confirm('Clear the current order?')) { menuOrder.length = 0; renderOrderPad(); refreshMenuBadges(); }
-    });
-    $('#menuRecordSaleBtn').addEventListener('click',  recordMenuSale);
-    $('#menuPrintReceiptBtn').addEventListener('click', printMenuReceipt);
+      $('#menuClearOrderBtn').addEventListener('click', () => {
+        if (!menuOrder.length) return;
+        if (confirm('Clear the current order?')) { menuOrder.length = 0; renderOrderPad(); refreshMenuBadges(); }
+      });
+      $('#menuRecordSaleBtn').addEventListener('click',  recordMenuSale);
+      $('#menuPrintReceiptBtn').addEventListener('click', printMenuReceipt);
 
-    $('#menuBoard').addEventListener('click', e => {
-      const card = e.target.closest('.menu-item-card');
-      if (!card || card.classList.contains('menu-unavailable')) return;
-      const id = card.dataset.id;
-      const product = StorageAPI.getMenuProductById(id);
-      if (!product) return;
-      const existing = menuOrder.find(o => o.product_id === id);
-      if (existing) { existing.qty++; }
-      else { menuOrder.push({ product_id: id, name: product.name, category: product.category, qty: 1, price: Number(product.price) || 0 }); }
-      card.classList.add('menu-item-added');
-      setTimeout(() => card.classList.remove('menu-item-added'), 350);
-      refreshMenuBadges();
-      renderOrderPad();
-    });
+      $('#menuBoard').addEventListener('click', e => {
+        const card = e.target.closest('.menu-item-card');
+        if (!card || card.classList.contains('menu-unavailable')) return;
+        const id = card.dataset.id;
+        const product = StorageAPI.getMenuProductById(id);
+        if (!product) return;
+        const existing = menuOrder.find(o => o.product_id === id);
+        if (existing) { existing.qty++; }
+        else { menuOrder.push({ product_id: id, name: product.name, category: product.category, qty: 1, price: Number(product.price) || 0 }); }
+        card.classList.add('menu-item-added');
+        setTimeout(() => card.classList.remove('menu-item-added'), 350);
+        refreshMenuBadges();
+        renderOrderPad();
+      });
 
-    $('#menuOrderLines').addEventListener('click', e => {
-      const btn = e.target.closest('button[data-idx]');
-      if (!btn) return;
-      const i = Number(btn.dataset.idx);
-      if (isNaN(i) || i < 0 || i >= menuOrder.length) return;
-      if      (btn.classList.contains('ol-minus'))  { menuOrder[i].qty--; if (menuOrder[i].qty <= 0) menuOrder.splice(i, 1); }
-      else if (btn.classList.contains('ol-plus'))   { menuOrder[i].qty++; }
-      else if (btn.classList.contains('ol-remove')) { menuOrder.splice(i, 1); }
-      renderOrderPad(); refreshMenuBadges();
-    });
+      $('#menuOrderLines').addEventListener('click', e => {
+        const btn = e.target.closest('button[data-idx]');
+        if (!btn) return;
+        const i = Number(btn.dataset.idx);
+        if (isNaN(i) || i < 0 || i >= menuOrder.length) return;
+        if      (btn.classList.contains('ol-minus'))  { menuOrder[i].qty--; if (menuOrder[i].qty <= 0) menuOrder.splice(i, 1); }
+        else if (btn.classList.contains('ol-plus'))   { menuOrder[i].qty++; }
+        else if (btn.classList.contains('ol-remove')) { menuOrder.splice(i, 1); }
+        renderOrderPad(); refreshMenuBadges();
+      });
 
-    $('#menuSearch').addEventListener('input',    renderMenuBoard);
-    $('#menuFilterCat').addEventListener('change', renderMenuBoard);
+      $('#menuSearch').addEventListener('input',    renderMenuBoard);
+      $('#menuFilterCat').addEventListener('change', renderMenuBoard);
+    }
   }
 
   // ── Ingredient row helpers ─────────────────────────────────────────────────
