@@ -17,7 +17,7 @@
     { username: 'owner', password: 'owner123', role: 'owner' },
     { username: 'staff', password: 'staff123', role: 'staff' }
   ];
-  const OWNER_ONLY = ['dashboard', 'sales', 'expenses', 'staff', 'reports', 'settings'];
+  const OWNER_ONLY = ['dashboard', 'expenses', 'staff', 'reports', 'settings'];
 
   // ── HELPERS ────────────────────────────────────────────────────────────────
   function cur(n) {
@@ -1880,7 +1880,12 @@
 
       $('#menuClearOrderBtn').addEventListener('click', () => {
         if (!menuOrder.length) return;
-        if (confirm('Clear the current order?')) { menuOrder.length = 0; renderOrderPad(); refreshMenuBadges(); }
+        if (confirm('Clear the current order?')) {
+          menuOrder.length = 0;
+          const saleDateEl = $('#menuSaleDate');
+          if (saleDateEl) saleDateEl.value = today();
+          renderOrderPad(); refreshMenuBadges();
+        }
       });
       $('#menuRecordSaleBtn').addEventListener('click',  recordMenuSale);
       $('#menuPrintReceiptBtn').addEventListener('click', printMenuReceipt);
@@ -2011,6 +2016,11 @@
     const prev = sel.value;
     sel.innerHTML = '<option value="">All Categories</option>' +
       cats.map(c => `<option value="${c}"${c === prev ? ' selected' : ''}>${c}</option>`).join('');
+    // Default sale date to today if not already set
+    const saleDateInput = $('#menuSaleDate');
+    if (saleDateInput && !saleDateInput.value) {
+      saleDateInput.value = today();
+    }
     renderMenuBoard();
     renderOrderPad();
   }
@@ -2124,9 +2134,13 @@
       return;
     }
 
-    // Record the sale
+    // Record the sale — use selected date from picker, fall back to now
+    const saleDateRaw = $('#menuSaleDate').value;
+    const saleDate    = saleDateRaw
+      ? new Date(saleDateRaw + 'T' + new Date().toTimeString().slice(0, 8)).toISOString()
+      : new Date().toISOString();
     const saleLines = menuOrder.map(o => ({ item_id: o.product_id, item_name: o.name, qty: o.qty, sell_price: o.price, cost_price: 0 }));
-    const sale = { id: StorageAPI.uid('sale'), date: new Date().toISOString(), lines: saleLines, ...Calc.saleTotals({ lines: saleLines }) };
+    const sale = { id: StorageAPI.uid('sale'), date: saleDate, lines: saleLines, ...Calc.saleTotals({ lines: saleLines }) };
     StorageAPI.addSale(sale);
 
     // Inject into sales history table instantly
@@ -2159,6 +2173,9 @@
 
     menuOrder.length = 0;
     $('#menuOrderNote').value = '';
+    // Reset date back to today for next order
+    const saleDateEl = $('#menuSaleDate');
+    if (saleDateEl) saleDateEl.value = today();
     renderOrderPad();
     renderMenuBoard();
     renderInventory();
