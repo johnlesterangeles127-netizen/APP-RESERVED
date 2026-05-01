@@ -220,6 +220,11 @@
     const sups = Array.from(new Set(s.suppliers || [])).sort();
     const catEl = $('#categoryList'); if (catEl) catEl.innerHTML = cats.map(c => `<option value="${c}">`).join('');
     const supEl = $('#supplierList'); if (supEl) supEl.innerHTML = sups.map(s => `<option value="${s}">`).join('');
+    // Populate staff dropdowns across Sales form and Menu POS
+    const staff = StorageAPI.getStaff();
+    const staffOpts = '<option value="">— Select Staff —</option>' + staff.map(st => `<option value="${st.id}">${st.name}</option>`).join('');
+    const saleStaffEl = $('#saleStaffId'); if (saleStaffEl) saleStaffEl.innerHTML = staffOpts;
+    const menuStaffEl = $('#menuOrderStaffId'); if (menuStaffEl) menuStaffEl.innerHTML = staffOpts;
   }
 
   // ── DASHBOARD ──────────────────────────────────────────────────────────────
@@ -1054,8 +1059,10 @@
       if (!saleDate) { toast('Please set the sale date and time', 'error'); return; }
 
       const sale = {
-        id:    StorageAPI.uid('sale'),
-        date:  new Date(saleDate).toISOString(),
+        id:      StorageAPI.uid('sale'),
+        date:    new Date(saleDate).toISOString(),
+        staff_id: $('#saleStaffId').value || null,
+        source:  'manual',
         lines,
         ...Calc.saleTotals({ lines })
       };
@@ -1416,6 +1423,15 @@
   function setupStaff() {
     if (_staffReady) return;
     _staffReady = true;
+    // Staff sales filters
+    $('#staffSalesApply').addEventListener('click', renderStaffSales);
+    $('#staffSalesClear').addEventListener('click', () => {
+      $('#staffSalesFilter').value = '';
+      $('#staffSalesStart').value  = '';
+      $('#staffSalesEnd').value    = '';
+      renderStaffSales();
+    });
+    $('#staffSalesFilter').addEventListener('change', renderStaffSales);
     $('#addStaffBtn').addEventListener('click', () => openStaffDialog());
     $('#staffDialogCancel').addEventListener('click', () => $('#staffDialog').close());
     $('#staffForm').addEventListener('submit', e => {
@@ -1581,6 +1597,7 @@
 
     const total = filtered.reduce((sum, p) => sum + (Number(p.net_pay) || 0), 0);
     $('#payrollTotal').textContent = cur(total);
+    renderStaffSales();
   }
 
   function showPayslipLatest(staffId) {
@@ -1712,6 +1729,70 @@
     <script>window.onload = () => { window.print(); };<\/script>
     </body></html>`);
     win.document.close();
+  }
+
+  // ── STAFF SALES ────────────────────────────────────────────────────────────
+  function renderStaffSales() {
+    const allStaff = StorageAPI.getStaff();
+    const allSales = StorageAPI.getSales();
+
+    // Populate staff filter dropdown
+    const filterEl = $('#staffSalesFilter');
+    const prevFilter = filterEl ? filterEl.value : '';
+    if (filterEl) {
+      filterEl.innerHTML = '<option value="">All Staff</option>' +
+        allStaff.map(st => `<option value="${st.id}" ${st.id === prevFilter ? 'selected' : ''}>${st.name}</option>`).join('');
+    }
+
+    const fStaff = filterEl ? filterEl.value : '';
+    const fStart = $('#staffSalesStart') ? $('#staffSalesStart').value : '';
+    const fEnd   = $('#staffSalesEnd')   ? $('#staffSalesEnd').value   : '';
+
+    let filtered = allSales.filter(s => {
+      if (fStaff && s.staff_id !== fStaff) return false;
+      if (fStart && s.date.slice(0,10) < fStart) return false;
+      if (fEnd   && s.date.slice(0,10) > fEnd)   return false;
+      return true;
+    });
+
+    // Sort newest first
+    filtered = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const totalRev = filtered.reduce((sum, s) => sum + (Calc.saleTotals(s).revenue || 0), 0);
+    const totalGP  = filtered.reduce((sum, s) => sum + (Calc.saleTotals(s).gp      || 0), 0);
+
+    $('#staffSalesCount').textContent   = filtered.length;
+    $('#staffSalesRevenue').textContent = cur(totalRev);
+    $('#staffSalesGP').textContent      = cur(totalGP);
+    $('#staffSalesTotalRev').textContent = cur(totalRev);
+    $('#staffSalesTotalGP').textContent  = cur(totalGP);
+
+    const tbody = $('#staffSalesTbody');
+    if (!tbody) return;
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="no-data-placeholder">No sales found for the selected filter.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = filtered.map(s => {
+      const st      = allStaff.find(x => x.id === s.staff_id);
+      const recBy   = st ? `<strong>${st.name}</strong>` : '<span style="color:var(--muted);">—</span>';
+      const dt      = new Date(s.date).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
+      const items   = (s.lines || []).map(l => `${l.item_name || '?'} ×${l.qty}`).join(', ');
+      const rev     = Calc.saleTotals(s).revenue;
+      const gp      = Calc.saleTotals(s).gp;
+      const source  = s.source === 'menu'
+        ? '<span style="background:var(--green-bg);color:var(--green);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">POS</span>'
+        : '<span style="background:#EFF6FF;color:#1D4ED8;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">Manual</span>';
+      return `<tr>
+        <td style="font-size:12px;white-space:nowrap;">${dt}</td>
+        <td>${recBy}</td>
+        <td style="font-size:11px;color:var(--muted);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${items}">${items || '—'}</td>
+        <td style="font-weight:600;color:var(--green);">${cur(rev)}</td>
+        <td style="font-weight:600;">${cur(gp)}</td>
+        <td>${source}</td>
+      </tr>`;
+    }).join('');
   }
 
   // ── REPORTS ────────────────────────────────────────────────────────────────
@@ -1877,15 +1958,6 @@
         renderMenuBoard();
         renderMenuProductsTable();
       });
-
-      // Initialize sale date to current time and wire "Now" button
-      function setMenuSaleDateNow() {
-        const now = new Date();
-        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-        $('#menuSaleDate').value = now.toISOString().slice(0, 16);
-      }
-      setMenuSaleDateNow();
-      $('#menuSaleDateNow').addEventListener('click', setMenuSaleDateNow);
 
       $('#menuClearOrderBtn').addEventListener('click', () => {
         if (!menuOrder.length) return;
@@ -2133,11 +2205,9 @@
       return;
     }
 
-    // Record the sale — use the user-selected date, fallback to now
-    const saleDateInput = $('#menuSaleDate').value;
-    const saleDate = saleDateInput ? new Date(saleDateInput).toISOString() : new Date().toISOString();
+    // Record the sale
     const saleLines = menuOrder.map(o => ({ item_id: o.product_id, item_name: o.name, qty: o.qty, sell_price: o.price, cost_price: 0 }));
-    const sale = { id: StorageAPI.uid('sale'), date: saleDate, lines: saleLines, ...Calc.saleTotals({ lines: saleLines }) };
+    const sale = { id: StorageAPI.uid('sale'), date: new Date().toISOString(), lines: saleLines, ...Calc.saleTotals({ lines: saleLines }) };
     StorageAPI.addSale(sale);
 
     // Inject into sales history table instantly
@@ -2170,10 +2240,6 @@
 
     menuOrder.length = 0;
     $('#menuOrderNote').value = '';
-    // Reset sale date to current time for next order
-    const _now = new Date();
-    _now.setMinutes(_now.getMinutes() - _now.getTimezoneOffset());
-    $('#menuSaleDate').value = _now.toISOString().slice(0, 16);
     renderOrderPad();
     renderMenuBoard();
     renderInventory();
@@ -2184,9 +2250,7 @@
     if (!menuOrder.length) { toast('Add products before printing', 'error'); return; }
     const tableNote = $('#menuOrderNote').value.trim();
     const total     = menuOrder.reduce((s, o) => s + o.qty * o.price, 0);
-    const saleDateVal = $('#menuSaleDate').value;
-    const receiptDate = saleDateVal ? new Date(saleDateVal) : new Date();
-    const now       = receiptDate.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
+    const now       = new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
     const win       = window.open('', '_blank', 'width=380,height=640');
     if (!win) { toast('Allow pop-ups to print receipts', 'error'); return; }
     win.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
