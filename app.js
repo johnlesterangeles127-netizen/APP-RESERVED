@@ -1878,6 +1878,15 @@
         renderMenuProductsTable();
       });
 
+      // Initialize sale date to current time and wire "Now" button
+      function setMenuSaleDateNow() {
+        const now = new Date();
+        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+        $('#menuSaleDate').value = now.toISOString().slice(0, 16);
+      }
+      setMenuSaleDateNow();
+      $('#menuSaleDateNow').addEventListener('click', setMenuSaleDateNow);
+
       $('#menuClearOrderBtn').addEventListener('click', () => {
         if (!menuOrder.length) return;
         if (confirm('Clear the current order?')) { menuOrder.length = 0; renderOrderPad(); refreshMenuBadges(); }
@@ -2124,9 +2133,11 @@
       return;
     }
 
-    // Record the sale
+    // Record the sale — use the user-selected date, fallback to now
+    const saleDateInput = $('#menuSaleDate').value;
+    const saleDate = saleDateInput ? new Date(saleDateInput).toISOString() : new Date().toISOString();
     const saleLines = menuOrder.map(o => ({ item_id: o.product_id, item_name: o.name, qty: o.qty, sell_price: o.price, cost_price: 0 }));
-    const sale = { id: StorageAPI.uid('sale'), date: new Date().toISOString(), lines: saleLines, ...Calc.saleTotals({ lines: saleLines }) };
+    const sale = { id: StorageAPI.uid('sale'), date: saleDate, lines: saleLines, ...Calc.saleTotals({ lines: saleLines }) };
     StorageAPI.addSale(sale);
 
     // Inject into sales history table instantly
@@ -2159,6 +2170,10 @@
 
     menuOrder.length = 0;
     $('#menuOrderNote').value = '';
+    // Reset sale date to current time for next order
+    const _now = new Date();
+    _now.setMinutes(_now.getMinutes() - _now.getTimezoneOffset());
+    $('#menuSaleDate').value = _now.toISOString().slice(0, 16);
     renderOrderPad();
     renderMenuBoard();
     renderInventory();
@@ -2169,7 +2184,9 @@
     if (!menuOrder.length) { toast('Add products before printing', 'error'); return; }
     const tableNote = $('#menuOrderNote').value.trim();
     const total     = menuOrder.reduce((s, o) => s + o.qty * o.price, 0);
-    const now       = new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
+    const saleDateVal = $('#menuSaleDate').value;
+    const receiptDate = saleDateVal ? new Date(saleDateVal) : new Date();
+    const now       = receiptDate.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
     const win       = window.open('', '_blank', 'width=380,height=640');
     if (!win) { toast('Allow pop-ups to print receipts', 'error'); return; }
     win.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
