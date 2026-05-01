@@ -250,11 +250,13 @@
                   <label style="font-size:12px;color:var(--muted);">Table / Customer (optional)</label>
                   <input id="menuOrderNote" type="text" placeholder="e.g. Table 3, Take-out" style="margin-top:4px;" />
                 </div>
-                <div style="padding:0 0 6px;">
-                  <label style="font-size:12px;color:var(--muted);">&#x1F464; Recorded By (optional)</label>
-                  <select id="menuOrderStaffId" style="margin-top:4px;font-size:13px;width:100%;">
-                    <option value="">— Select Staff —</option>
-                  </select>
+                <div style="padding:0 0 8px;border-bottom:1px solid var(--border);margin-bottom:6px;">
+                  <label style="font-size:12px;color:var(--muted);font-weight:600;">📅 Sale Date &amp; Time</label>
+                  <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
+                    <input id="menuSaleDate" type="datetime-local" style="flex:1;font-size:13px;" />
+                    <button id="menuSaleDateNow" type="button" class="btn btn-ghost btn-sm" style="white-space:nowrap;font-size:12px;">Now ↺</button>
+                  </div>
+                  <p style="font-size:11px;color:var(--muted);margin-top:3px;">Change this to record a past sale accurately.</p>
                 </div>
                 <div id="menuOrderLines" style="min-height:60px;max-height:300px;overflow-y:auto;border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:6px 0;margin:6px 0;"></div>
                 <div style="padding:6px 0 10px;">
@@ -351,12 +353,6 @@
             <div class="form-row" style="flex:1;min-width:200px;margin:0;">
               <label for="saleDate">Date &amp; Time</label>
               <input type="datetime-local" id="saleDate" required />
-            </div>
-            <div class="form-row" style="flex:1;min-width:180px;margin:0;">
-              <label for="saleStaffId">Recorded By (optional)</label>
-              <select id="saleStaffId">
-                <option value="">— Select Staff —</option>
-              </select>
             </div>
             <p class="helper" style="margin:0;padding-top:20px;">Stock will be auto-deducted on save.</p>
           </div>
@@ -564,34 +560,39 @@
           </table>
         </div>
 
-        <!-- Staff Sales -->
+        <!-- ── Sales Records (by date) ─────────────────────────── -->
         <div class="section-subheader" style="margin-top:28px;">
-          <h3>&#x1F4CA; Sales by Staff</h3>
-          <div class="filters" style="margin:0;">
-            <select id="staffSalesFilter"><option value="">All Staff</option></select>
-            <label>From <input type="date" id="staffSalesStart" style="width:145px;" /></label>
-            <label>To <input type="date" id="staffSalesEnd" style="width:145px;" /></label>
-            <button id="staffSalesApply" class="btn btn-secondary btn-sm">Apply</button>
-            <button id="staffSalesClear" class="btn btn-ghost btn-sm">Clear</button>
+          <h3>📊 Sales Records</h3>
+          <div class="filters" style="margin:0;gap:8px;">
+            <label style="font-size:13px;font-weight:600;">Date
+              <input type="date" id="staffSalesDate" style="width:160px;margin-left:6px;" />
+            </label>
+            <button id="staffSalesApply" class="btn btn-secondary btn-sm">View Sales</button>
+            <button id="staffSalesClear" class="btn btn-ghost btn-sm">Today</button>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px;">
-          <div class="card kpi"><div class="kpi-title">Total Sales</div><div id="staffSalesCount" class="kpi-value">0</div></div>
-          <div class="card kpi"><div class="kpi-title">Total Revenue</div><div id="staffSalesRevenue" class="kpi-value">&#x20B1;0.00</div></div>
-          <div class="card kpi kpi-green"><div class="kpi-title">Gross Profit</div><div id="staffSalesGP" class="kpi-value">&#x20B1;0.00</div></div>
+        <!-- KPI strip -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px;">
+          <div class="card kpi"><div class="kpi-title">Transactions</div><div id="staffDaySalesCount" class="kpi-value">0</div></div>
+          <div class="card kpi"><div class="kpi-title">Revenue</div><div id="staffDaySalesRev" class="kpi-value">₱0.00</div></div>
+          <div class="card kpi kpi-green"><div class="kpi-title">Gross Profit</div><div id="staffDaySalesGP" class="kpi-value">₱0.00</div></div>
         </div>
         <div class="table-wrapper">
           <table class="table">
             <thead>
-              <tr><th>Date &amp; Time</th><th>Recorded By</th><th>Items</th><th>Revenue</th><th>Gross Profit</th><th>Source</th></tr>
+              <tr>
+                <th>Time</th>
+                <th>Items Sold</th>
+                <th>Revenue</th>
+                <th>Gross Profit</th>
+              </tr>
             </thead>
             <tbody id="staffSalesTbody" class="zebra"></tbody>
             <tfoot>
               <tr>
-                <td colspan="3"><strong>Totals</strong></td>
-                <td id="staffSalesTotalRev" style="font-weight:700;color:var(--green);">&#x20B1;0.00</td>
-                <td id="staffSalesTotalGP"  style="font-weight:700;color:var(--green);">&#x20B1;0.00</td>
-                <td></td>
+                <td colspan="2"><strong>Day Total</strong></td>
+                <td id="staffDayTotalRev" style="font-weight:700;color:var(--green);">₱0.00</td>
+                <td id="staffDayTotalGP"  style="font-weight:700;color:var(--green);">₱0.00</td>
               </tr>
             </tfoot>
           </table>
