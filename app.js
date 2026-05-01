@@ -1417,14 +1417,27 @@
     if (_staffReady) return;
     _staffReady = true;
 
-    // ── Sales by date ──────────────────────────────────────────────────────
-    function setStaffSalesDateToday() {
-      $('#staffSalesDate').value = new Date().toISOString().slice(0, 10);
-      renderStaffSales();
-    }
-    setStaffSalesDateToday(); // default to today on first load
-    $('#staffSalesApply').addEventListener('click', renderStaffSales);
-    $('#staffSalesClear').addEventListener('click', setStaffSalesDateToday);
+    // ── Staff Sales sub-tabs ───────────────────────────────────────────────
+    $$('#staffSalesTabBar .tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        $$('#staffSalesTabBar .tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const panels = ['stSalesHistory','stSalesWeekly','stSalesMonthly','stSalesYearly','stSalesPerItem'];
+        panels.forEach(id => { const p = $('#' + id); if (p) p.classList.remove('active'); });
+        const panel = $('#' + btn.dataset.stab);
+        if (panel) panel.classList.add('active');
+        if (btn.dataset.stab === 'stSalesHistory')  renderStSalesHistory();
+        if (btn.dataset.stab === 'stSalesWeekly')   renderStSalesWeekly();
+        if (btn.dataset.stab === 'stSalesMonthly')  renderStSalesMonthly();
+        if (btn.dataset.stab === 'stSalesYearly')   renderStSalesYearly();
+        if (btn.dataset.stab === 'stSalesPerItem')  renderStSalesPerItem();
+      });
+    });
+    // Filter inputs for history tab
+    ['stSalesFilterStart','stSalesFilterEnd','stSalesFilterItem'].forEach(id => {
+      const el = $('#' + id); if (el) el.addEventListener('input', renderStSalesHistory);
+    });
+    $('#stPerItemApply').addEventListener('click', renderStSalesPerItem);
 
     $('#addStaffBtn').addEventListener('click', () => openStaffDialog());
     $('#staffDialogCancel').addEventListener('click', () => $('#staffDialog').close());
@@ -1591,6 +1604,8 @@
 
     const total = filtered.reduce((sum, p) => sum + (Number(p.net_pay) || 0), 0);
     $('#payrollTotal').textContent = cur(total);
+    // Refresh staff sales view
+    renderStSalesHistory();
   }
 
   function showPayslipLatest(staffId) {
@@ -1725,50 +1740,149 @@
   }
 
 
-  // ── STAFF SALES VIEW ────────────────────────────────────────────────────────
-  function renderStaffSales() {
-    const dateVal = $('#staffSalesDate').value; // 'YYYY-MM-DD'
-    const tbody   = $('#staffSalesTbody');
-    if (!dateVal) {
-      tbody.innerHTML = '<tr><td colspan="4" class="no-data-placeholder">Pick a date above and click "View Sales".</td></tr>';
-      $('#staffDaySalesCount').textContent = '0';
-      $('#staffDaySalesRev').textContent   = cur(0);
-      $('#staffDaySalesGP').textContent    = cur(0);
-      $('#staffDayTotalRev').textContent   = cur(0);
-      $('#staffDayTotalGP').textContent    = cur(0);
-      return;
-    }
-    const allSales = StorageAPI.getSales();
-    const daySales = allSales
-      .filter(s => s.date && s.date.slice(0, 10) === dateVal)
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+  // ══ STAFF SALES VIEW ════════════════════════════════════════════════════════
+  // These mirror the main Sales section but use st* IDs — read-only, no delete.
 
-    const totalRev = daySales.reduce((sum, s) => sum + (Calc.saleTotals(s).revenue || 0), 0);
-    const totalGP  = daySales.reduce((sum, s) => sum + (Calc.saleTotals(s).gp      || 0), 0);
+  function renderStSalesHistory() {
+    const sales  = StorageAPI.getSales();
+    const start  = $('#stSalesFilterStart').value || null;
+    const end    = $('#stSalesFilterEnd').value   || null;
+    const term   = ($('#stSalesFilterItem').value || '').toLowerCase();
+    const td     = today();
 
-    $('#staffDaySalesCount').textContent = daySales.length;
-    $('#staffDaySalesRev').textContent   = cur(totalRev);
-    $('#staffDaySalesGP').textContent    = cur(totalGP);
-    $('#staffDayTotalRev').textContent   = cur(totalRev);
-    $('#staffDayTotalGP').textContent    = cur(totalGP);
+    let filtered = sales
+      .filter(s => inRange(s.date, start, end))
+      .filter(s => !term || s.lines.map(l => (l.item_name || '').toLowerCase()).join(' ').includes(term));
 
-    if (!daySales.length) {
-      tbody.innerHTML = `<tr><td colspan="4" class="no-data-placeholder">No sales found for ${dateVal}.</td></tr>`;
-      return;
-    }
+    const grouped = {};
+    filtered.forEach(s => {
+      const dk = s.date.slice(0, 10);
+      (grouped[dk] = grouped[dk] || []).push(s);
+    });
 
-    tbody.innerHTML = daySales.map(s => {
-      const time  = new Date(s.date).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
-      const items = (s.lines || []).map(l => `${l.item_name || '—'} ×${l.qty}`).join(', ');
-      const rev   = Calc.saleTotals(s).revenue;
-      const gp    = Calc.saleTotals(s).gp;
-      return `<tr>
-        <td style="font-weight:600;">${time}</td>
-        <td style="font-size:12px;color:var(--muted);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${items}">${items}</td>
-        <td style="font-weight:600;color:var(--green);">${cur(rev)}</td>
-        <td style="font-weight:600;">${cur(gp)}</td>
+    let html = '';
+    Object.keys(grouped).sort((a, b) => b.localeCompare(a)).forEach(dk => {
+      const isToday  = dk === td;
+      const daySales = grouped[dk];
+      const dayRev   = daySales.reduce((sum, s) => sum + (s.revenue || 0), 0);
+      const label    = new Date(dk).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+
+      html += `<tr class="sales-date-header" data-dk="${dk}">
+        <td colspan="5">
+          <button class="sales-date-toggle">
+            <span class="toggle-icon">▼</span>
+            ${label}${isToday ? ' (Today)' : ''} — ${daySales.length} sale(s) &nbsp;·&nbsp; ${cur(dayRev)}
+          </button>
+        </td>
       </tr>`;
-    }).join('');
+
+      const show = isToday ? 'table-row' : 'none';
+      daySales.forEach(sale => {
+        const items = sale.lines.map(l => `${l.item_name} ×${l.qty}`).join(', ');
+        html += `<tr class="sales-day-rows" style="display:${show};">
+          <td style="font-size:12px;">${new Date(sale.date).toLocaleTimeString()}</td>
+          <td>${items}</td>
+          <td>${cur(sale.revenue)}</td>
+          <td>${cur(sale.cogs)}</td>
+          <td style="color:var(--green);font-weight:600;">${cur(sale.gp || (sale.revenue - sale.cogs))}</td>
+        </tr>`;
+      });
+    });
+
+    if (!html) html = '<tr><td colspan="5" class="no-data-placeholder">No sales found</td></tr>';
+
+    const tbody = $('#stSalesTbody');
+    tbody.innerHTML = html;
+
+    tbody.querySelectorAll('.sales-date-toggle').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const icon = btn.querySelector('.toggle-icon');
+        const expanded = icon.textContent === '▼';
+        let row = btn.closest('tr').nextElementSibling;
+        while (row && !row.classList.contains('sales-date-header')) {
+          if (row.classList.contains('sales-day-rows')) row.style.display = expanded ? 'none' : 'table-row';
+          row = row.nextElementSibling;
+        }
+        icon.textContent = expanded ? '▶' : '▼';
+      });
+    });
+
+    $('#stExportSalesCsv').onclick = () => {
+      StorageAPI.downloadCSV('sales_staff_view.csv', filtered.map(s => ({
+        id: s.id, date: s.date,
+        items: s.lines.map(l => `${l.item_name} x${l.qty}`).join('; '),
+        revenue: s.revenue, cogs: s.cogs, gross_profit: s.gp || (s.revenue - s.cogs)
+      })));
+      toast('Sales exported ✓');
+    };
+  }
+
+  function renderStSalesWeekly() {
+    const sales = StorageAPI.getSales(), weeks = {};
+    sales.forEach(sale => {
+      const d = new Date(sale.date), dow = d.getDay();
+      const mon = new Date(d); mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+      const wk = mon.toISOString().slice(0, 10);
+      if (!weeks[wk]) weeks[wk] = { revenue: 0, cogs: 0, gp: 0, count: 0 };
+      const t = Calc.saleTotals(sale);
+      weeks[wk].revenue += t.revenue; weeks[wk].cogs += t.cogs; weeks[wk].gp += t.gp; weeks[wk].count++;
+    });
+    $('#stSalesWeeklyTbody').innerHTML = Object.keys(weeks).sort((a, b) => b.localeCompare(a)).map(wk => {
+      const d = new Date(wk), e = new Date(wk); e.setDate(d.getDate() + 6);
+      const lbl = `${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${e.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`;
+      const w = weeks[wk];
+      return `<tr><td>${lbl}</td><td>${cur(w.revenue)}</td><td>${cur(w.cogs)}</td><td style="color:var(--green);font-weight:600;">${cur(w.gp)}</td><td>${w.count}</td></tr>`;
+    }).join('') || '<tr><td colspan="5" class="no-data-placeholder">No data</td></tr>';
+  }
+
+  function renderStSalesMonthly() {
+    const sales = StorageAPI.getSales(), months = {};
+    sales.forEach(s => {
+      const mk = s.date.slice(0, 7);
+      if (!months[mk]) months[mk] = { revenue: 0, cogs: 0, gp: 0, count: 0 };
+      const t = Calc.saleTotals(s); months[mk].revenue += t.revenue; months[mk].cogs += t.cogs; months[mk].gp += t.gp; months[mk].count++;
+    });
+    $('#stSalesMonthlyTbody').innerHTML = Object.keys(months).sort((a, b) => b.localeCompare(a)).map(mk => {
+      const m = months[mk];
+      return `<tr><td>${new Date(mk + '-01').toLocaleDateString('en-US',{year:'numeric',month:'long'})}</td><td>${cur(m.revenue)}</td><td>${cur(m.cogs)}</td><td style="color:var(--green);font-weight:600;">${cur(m.gp)}</td><td>${m.count}</td></tr>`;
+    }).join('') || '<tr><td colspan="5" class="no-data-placeholder">No data</td></tr>';
+  }
+
+  function renderStSalesYearly() {
+    const sales = StorageAPI.getSales(), years = {};
+    sales.forEach(s => {
+      const yr = s.date.slice(0, 4);
+      if (!years[yr]) years[yr] = { revenue: 0, cogs: 0, gp: 0, count: 0 };
+      const t = Calc.saleTotals(s); years[yr].revenue += t.revenue; years[yr].cogs += t.cogs; years[yr].gp += t.gp; years[yr].count++;
+    });
+    $('#stSalesYearlyTbody').innerHTML = Object.keys(years).sort((a, b) => b.localeCompare(a)).map(yr => {
+      const y = years[yr];
+      return `<tr><td><strong>${yr}</strong></td><td>${cur(y.revenue)}</td><td>${cur(y.cogs)}</td><td style="color:var(--green);font-weight:600;">${cur(y.gp)}</td><td>${y.count}</td></tr>`;
+    }).join('') || '<tr><td colspan="5" class="no-data-placeholder">No data</td></tr>';
+  }
+
+  function renderStSalesPerItem() {
+    const sales = StorageAPI.getSales(), inv = StorageAPI.getInventory();
+    const start = $('#stPerItemStart').value || null, end = $('#stPerItemEnd').value || null, map = {};
+    sales.filter(s => inRange(s.date, start, end)).forEach(sale => {
+      sale.lines.forEach(l => {
+        const key = l.item_id || l.item_name; if (!key) return;
+        if (!map[key]) {
+          const item = inv.find(i => i.id === l.item_id);
+          map[key] = { name: l.item_name || item?.name || key, category: item?.category || '—', qty: 0, revenue: 0, cogs: 0, gp: 0 };
+        }
+        const t = Calc.lineTotals(l); map[key].qty += l.qty; map[key].revenue += t.revenue; map[key].cogs += t.cogs; map[key].gp += t.gp;
+      });
+    });
+    const rows = Object.values(map).sort((a, b) => b.qty - a.qty);
+    $('#stSalesPerItemTbody').innerHTML = rows.map(r =>
+      `<tr><td>${r.name}</td><td>${r.category}</td><td><strong>${r.qty}</strong></td><td>${cur(r.revenue)}</td><td>${cur(r.cogs)}</td><td style="color:var(--green);font-weight:600;">${cur(r.gp)}</td></tr>`
+    ).join('') || '<tr><td colspan="6" class="no-data-placeholder">No data</td></tr>';
+    $('#stExportPerItemCsv').onclick = () => {
+      StorageAPI.downloadCSV('per_item_staff_view.csv', rows);
+      toast('Exported ✓');
+    };
   }
 
   // ── REPORTS ────────────────────────────────────────────────────────────────
@@ -1934,15 +2048,6 @@
         renderMenuBoard();
         renderMenuProductsTable();
       });
-
-      // ── Sale date picker ──────────────────────────────────────────────────
-      function setMenuSaleDateNow() {
-        const n = new Date();
-        n.setMinutes(n.getMinutes() - n.getTimezoneOffset());
-        $('#menuSaleDate').value = n.toISOString().slice(0, 16);
-      }
-      setMenuSaleDateNow(); // initialize to current time on load
-      $('#menuSaleDateNow').addEventListener('click', setMenuSaleDateNow);
 
       $('#menuClearOrderBtn').addEventListener('click', () => {
         if (!menuOrder.length) return;
@@ -2192,10 +2297,7 @@
 
     // Record the sale
     const saleLines = menuOrder.map(o => ({ item_id: o.product_id, item_name: o.name, qty: o.qty, sell_price: o.price, cost_price: 0 }));
-    // Use the user-chosen date; fall back to now if blank
-    const _pickedDate = $('#menuSaleDate').value;
-    const _saleDate   = _pickedDate ? new Date(_pickedDate).toISOString() : new Date().toISOString();
-    const sale = { id: StorageAPI.uid('sale'), date: _saleDate, lines: saleLines, ...Calc.saleTotals({ lines: saleLines }) };
+    const sale = { id: StorageAPI.uid('sale'), date: new Date().toISOString(), lines: saleLines, ...Calc.saleTotals({ lines: saleLines }) };
     StorageAPI.addSale(sale);
 
     // Inject into sales history table instantly
@@ -2228,10 +2330,6 @@
 
     menuOrder.length = 0;
     $('#menuOrderNote').value = '';
-    // Reset date to now for next order
-    const _rn = new Date();
-    _rn.setMinutes(_rn.getMinutes() - _rn.getTimezoneOffset());
-    $('#menuSaleDate').value = _rn.toISOString().slice(0, 16);
     renderOrderPad();
     renderMenuBoard();
     renderInventory();
@@ -2240,11 +2338,9 @@
 
   function printMenuReceipt() {
     if (!menuOrder.length) { toast('Add products before printing', 'error'); return; }
-    const tableNote   = $('#menuOrderNote').value.trim();
-    const total       = menuOrder.reduce((s, o) => s + o.qty * o.price, 0);
-    const _pd         = $('#menuSaleDate').value;
-    const _printDate  = _pd ? new Date(_pd) : new Date();
-    const now         = _printDate.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
+    const tableNote = $('#menuOrderNote').value.trim();
+    const total     = menuOrder.reduce((s, o) => s + o.qty * o.price, 0);
+    const now       = new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
     const win       = window.open('', '_blank', 'width=380,height=640');
     if (!win) { toast('Allow pop-ups to print receipts', 'error'); return; }
     win.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
