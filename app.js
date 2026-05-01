@@ -1416,29 +1416,6 @@
   function setupStaff() {
     if (_staffReady) return;
     _staffReady = true;
-
-    // ── Staff Sales sub-tabs ───────────────────────────────────────────────
-    $$('#staffSalesTabBar .tab-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        $$('#staffSalesTabBar .tab-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const panels = ['stSalesHistory','stSalesWeekly','stSalesMonthly','stSalesYearly','stSalesPerItem'];
-        panels.forEach(id => { const p = $('#' + id); if (p) p.classList.remove('active'); });
-        const panel = $('#' + btn.dataset.stab);
-        if (panel) panel.classList.add('active');
-        if (btn.dataset.stab === 'stSalesHistory')  renderStSalesHistory();
-        if (btn.dataset.stab === 'stSalesWeekly')   renderStSalesWeekly();
-        if (btn.dataset.stab === 'stSalesMonthly')  renderStSalesMonthly();
-        if (btn.dataset.stab === 'stSalesYearly')   renderStSalesYearly();
-        if (btn.dataset.stab === 'stSalesPerItem')  renderStSalesPerItem();
-      });
-    });
-    // Filter inputs for history tab
-    ['stSalesFilterStart','stSalesFilterEnd','stSalesFilterItem'].forEach(id => {
-      const el = $('#' + id); if (el) el.addEventListener('input', renderStSalesHistory);
-    });
-    $('#stPerItemApply').addEventListener('click', renderStSalesPerItem);
-
     $('#addStaffBtn').addEventListener('click', () => openStaffDialog());
     $('#staffDialogCancel').addEventListener('click', () => $('#staffDialog').close());
     $('#staffForm').addEventListener('submit', e => {
@@ -1604,8 +1581,6 @@
 
     const total = filtered.reduce((sum, p) => sum + (Number(p.net_pay) || 0), 0);
     $('#payrollTotal').textContent = cur(total);
-    // Refresh staff sales view
-    renderStSalesHistory();
   }
 
   function showPayslipLatest(staffId) {
@@ -1737,152 +1712,6 @@
     <script>window.onload = () => { window.print(); };<\/script>
     </body></html>`);
     win.document.close();
-  }
-
-
-  // ══ STAFF SALES VIEW ════════════════════════════════════════════════════════
-  // These mirror the main Sales section but use st* IDs — read-only, no delete.
-
-  function renderStSalesHistory() {
-    const sales  = StorageAPI.getSales();
-    const start  = $('#stSalesFilterStart').value || null;
-    const end    = $('#stSalesFilterEnd').value   || null;
-    const term   = ($('#stSalesFilterItem').value || '').toLowerCase();
-    const td     = today();
-
-    let filtered = sales
-      .filter(s => inRange(s.date, start, end))
-      .filter(s => !term || s.lines.map(l => (l.item_name || '').toLowerCase()).join(' ').includes(term));
-
-    const grouped = {};
-    filtered.forEach(s => {
-      const dk = s.date.slice(0, 10);
-      (grouped[dk] = grouped[dk] || []).push(s);
-    });
-
-    let html = '';
-    Object.keys(grouped).sort((a, b) => b.localeCompare(a)).forEach(dk => {
-      const isToday  = dk === td;
-      const daySales = grouped[dk];
-      const dayRev   = daySales.reduce((sum, s) => sum + (s.revenue || 0), 0);
-      const label    = new Date(dk).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
-
-      html += `<tr class="sales-date-header" data-dk="${dk}">
-        <td colspan="5">
-          <button class="sales-date-toggle">
-            <span class="toggle-icon">▼</span>
-            ${label}${isToday ? ' (Today)' : ''} — ${daySales.length} sale(s) &nbsp;·&nbsp; ${cur(dayRev)}
-          </button>
-        </td>
-      </tr>`;
-
-      const show = isToday ? 'table-row' : 'none';
-      daySales.forEach(sale => {
-        const items = sale.lines.map(l => `${l.item_name} ×${l.qty}`).join(', ');
-        html += `<tr class="sales-day-rows" style="display:${show};">
-          <td style="font-size:12px;">${new Date(sale.date).toLocaleTimeString()}</td>
-          <td>${items}</td>
-          <td>${cur(sale.revenue)}</td>
-          <td>${cur(sale.cogs)}</td>
-          <td style="color:var(--green);font-weight:600;">${cur(sale.gp || (sale.revenue - sale.cogs))}</td>
-        </tr>`;
-      });
-    });
-
-    if (!html) html = '<tr><td colspan="5" class="no-data-placeholder">No sales found</td></tr>';
-
-    const tbody = $('#stSalesTbody');
-    tbody.innerHTML = html;
-
-    tbody.querySelectorAll('.sales-date-toggle').forEach(btn => {
-      btn.addEventListener('click', e => {
-        e.stopPropagation();
-        const icon = btn.querySelector('.toggle-icon');
-        const expanded = icon.textContent === '▼';
-        let row = btn.closest('tr').nextElementSibling;
-        while (row && !row.classList.contains('sales-date-header')) {
-          if (row.classList.contains('sales-day-rows')) row.style.display = expanded ? 'none' : 'table-row';
-          row = row.nextElementSibling;
-        }
-        icon.textContent = expanded ? '▶' : '▼';
-      });
-    });
-
-    $('#stExportSalesCsv').onclick = () => {
-      StorageAPI.downloadCSV('sales_staff_view.csv', filtered.map(s => ({
-        id: s.id, date: s.date,
-        items: s.lines.map(l => `${l.item_name} x${l.qty}`).join('; '),
-        revenue: s.revenue, cogs: s.cogs, gross_profit: s.gp || (s.revenue - s.cogs)
-      })));
-      toast('Sales exported ✓');
-    };
-  }
-
-  function renderStSalesWeekly() {
-    const sales = StorageAPI.getSales(), weeks = {};
-    sales.forEach(sale => {
-      const d = new Date(sale.date), dow = d.getDay();
-      const mon = new Date(d); mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
-      const wk = mon.toISOString().slice(0, 10);
-      if (!weeks[wk]) weeks[wk] = { revenue: 0, cogs: 0, gp: 0, count: 0 };
-      const t = Calc.saleTotals(sale);
-      weeks[wk].revenue += t.revenue; weeks[wk].cogs += t.cogs; weeks[wk].gp += t.gp; weeks[wk].count++;
-    });
-    $('#stSalesWeeklyTbody').innerHTML = Object.keys(weeks).sort((a, b) => b.localeCompare(a)).map(wk => {
-      const d = new Date(wk), e = new Date(wk); e.setDate(d.getDate() + 6);
-      const lbl = `${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${e.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`;
-      const w = weeks[wk];
-      return `<tr><td>${lbl}</td><td>${cur(w.revenue)}</td><td>${cur(w.cogs)}</td><td style="color:var(--green);font-weight:600;">${cur(w.gp)}</td><td>${w.count}</td></tr>`;
-    }).join('') || '<tr><td colspan="5" class="no-data-placeholder">No data</td></tr>';
-  }
-
-  function renderStSalesMonthly() {
-    const sales = StorageAPI.getSales(), months = {};
-    sales.forEach(s => {
-      const mk = s.date.slice(0, 7);
-      if (!months[mk]) months[mk] = { revenue: 0, cogs: 0, gp: 0, count: 0 };
-      const t = Calc.saleTotals(s); months[mk].revenue += t.revenue; months[mk].cogs += t.cogs; months[mk].gp += t.gp; months[mk].count++;
-    });
-    $('#stSalesMonthlyTbody').innerHTML = Object.keys(months).sort((a, b) => b.localeCompare(a)).map(mk => {
-      const m = months[mk];
-      return `<tr><td>${new Date(mk + '-01').toLocaleDateString('en-US',{year:'numeric',month:'long'})}</td><td>${cur(m.revenue)}</td><td>${cur(m.cogs)}</td><td style="color:var(--green);font-weight:600;">${cur(m.gp)}</td><td>${m.count}</td></tr>`;
-    }).join('') || '<tr><td colspan="5" class="no-data-placeholder">No data</td></tr>';
-  }
-
-  function renderStSalesYearly() {
-    const sales = StorageAPI.getSales(), years = {};
-    sales.forEach(s => {
-      const yr = s.date.slice(0, 4);
-      if (!years[yr]) years[yr] = { revenue: 0, cogs: 0, gp: 0, count: 0 };
-      const t = Calc.saleTotals(s); years[yr].revenue += t.revenue; years[yr].cogs += t.cogs; years[yr].gp += t.gp; years[yr].count++;
-    });
-    $('#stSalesYearlyTbody').innerHTML = Object.keys(years).sort((a, b) => b.localeCompare(a)).map(yr => {
-      const y = years[yr];
-      return `<tr><td><strong>${yr}</strong></td><td>${cur(y.revenue)}</td><td>${cur(y.cogs)}</td><td style="color:var(--green);font-weight:600;">${cur(y.gp)}</td><td>${y.count}</td></tr>`;
-    }).join('') || '<tr><td colspan="5" class="no-data-placeholder">No data</td></tr>';
-  }
-
-  function renderStSalesPerItem() {
-    const sales = StorageAPI.getSales(), inv = StorageAPI.getInventory();
-    const start = $('#stPerItemStart').value || null, end = $('#stPerItemEnd').value || null, map = {};
-    sales.filter(s => inRange(s.date, start, end)).forEach(sale => {
-      sale.lines.forEach(l => {
-        const key = l.item_id || l.item_name; if (!key) return;
-        if (!map[key]) {
-          const item = inv.find(i => i.id === l.item_id);
-          map[key] = { name: l.item_name || item?.name || key, category: item?.category || '—', qty: 0, revenue: 0, cogs: 0, gp: 0 };
-        }
-        const t = Calc.lineTotals(l); map[key].qty += l.qty; map[key].revenue += t.revenue; map[key].cogs += t.cogs; map[key].gp += t.gp;
-      });
-    });
-    const rows = Object.values(map).sort((a, b) => b.qty - a.qty);
-    $('#stSalesPerItemTbody').innerHTML = rows.map(r =>
-      `<tr><td>${r.name}</td><td>${r.category}</td><td><strong>${r.qty}</strong></td><td>${cur(r.revenue)}</td><td>${cur(r.cogs)}</td><td style="color:var(--green);font-weight:600;">${cur(r.gp)}</td></tr>`
-    ).join('') || '<tr><td colspan="6" class="no-data-placeholder">No data</td></tr>';
-    $('#stExportPerItemCsv').onclick = () => {
-      StorageAPI.downloadCSV('per_item_staff_view.csv', rows);
-      toast('Exported ✓');
-    };
   }
 
   // ── REPORTS ────────────────────────────────────────────────────────────────
