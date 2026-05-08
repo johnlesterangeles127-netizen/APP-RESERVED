@@ -62,7 +62,7 @@
     }
     console.log('✅ RESERVE: Supabase connected');
 
-    // Load all 8 tables in parallel
+    // Load all tables in parallel — stock_log uses paginated loader to get ALL rows
     await Promise.all([
       _loadTable('inventory',        'created_at', true),
       _loadTable('sales',            'date',       false),
@@ -70,7 +70,7 @@
       _loadTable('monthly_top_items','month',      false),
       _loadTable('staff',            'name',       true),
       _loadTable('payroll',          'period',     false),
-      _loadTable('stock_log',        'date',       false, 2000),
+      _loadAllStockLog(),
       _loadTable('menu_products',    'created_at', true)
     ]);
 
@@ -119,6 +119,32 @@
       }
     } catch(e) {
       console.error(`❌ Failed to load ${table}:`, e.message || e);
+    }
+  }
+
+  // Supabase returns max 1000 rows per query by default.
+  // This function pages through ALL stock_log rows so nothing is lost.
+  async function _loadAllStockLog() {
+    try {
+      const PAGE = 1000;
+      let allRows = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await db
+          .from('stock_log')
+          .select('*')
+          .order('date', { ascending: false })
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        const rows = data || [];
+        allRows = allRows.concat(rows);
+        if (rows.length < PAGE) break;  // last page
+        from += PAGE;
+      }
+      cache.stockLog = allRows;
+      console.log(`✅ stock_log: loaded ${allRows.length} total rows`);
+    } catch(e) {
+      console.error('❌ Failed to load stock_log:', e.message || e);
     }
   }
 
@@ -192,20 +218,16 @@
   }
 
   // ── STOCK LOG ──────────────────────────────────────────────────────────────
-  // app.js calls addStockLog({ item_id, item_name, inventory_type, type, qty, balance, note, date })
-  // inventory_type is kept in the CACHE object for in-session section-scoping,
-  // but is NOT sent to the DB insert because the column may not exist in stock_log.
-  // Section-scoping in renderStockLog falls back to itemTypeMap (inventory lookup).
+  // app.js calls addStockLog({ item_id, item_name, type, qty, balance, note, date })
   function getStockLog() { return cache.stockLog; }
 
   function addStockLog(entry) {
     const row = { id: uid('log'), ...entry };
-    // Add to cache WITH inventory_type so in-session display works immediately
+    // Push to cache immediately with inventory_type for in-session section display
     cache.stockLog.unshift(row);
-    // Strip inventory_type from DB row — the stock_log table may not have this column.
-    // If you have run migration.sql (ALTER TABLE stock_log ADD COLUMN inventory_type TEXT),
-    // you can remove the line below and the insert will include inventory_type.
-    const { inventory_type: _drop, ...dbRow } = row;
+    // Save to DB — strip inventory_type because your stock_log table may not have
+    // this column yet. Run migration_stock_log.sql to add it, then remove this stripping.
+    const { inventory_type: _it, ...dbRow } = row;
     _save(`insert stock_log [${entry.item_name}]`, db.from('stock_log').insert([dbRow]));
   }
 
