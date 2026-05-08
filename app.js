@@ -630,14 +630,15 @@
       sectionItems.map(it => `<option value="${it.id}" ${it.id === pItem ? 'selected' : ''}>${it.name}</option>`).join('');
 
     const filtered = logs.filter(l => {
-      // Only show logs for items in the current inventory section
-      const logType = itemTypeMap[l.item_id] || l.inventory_type;
+      // Section-scope: prefer item lookup; fall back to stored inventory_type on log.
+      // If NEITHER is known (deleted item, old log), show in ALL sections so logs are never lost.
+      const logType = itemTypeMap[l.item_id] || l.inventory_type || null;
       if (logType && logType !== currentType) return false;
       if (fItem && l.item_id !== fItem) return false;
       if (fType && l.type    !== fType)  return false;
       if (!inRange(l.date, fStart, fEnd)) return false;
       return true;
-    }).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 300);
+    }).sort((a, b) => b.date.localeCompare(a.date));
 
     // Group by day
     const grouped = {};
@@ -706,11 +707,11 @@
     const tbody = $('#stockLogTbody');
     if (!tbody) return;
 
-    // Section scope check
+    // Section scope check — if type is unknown, show in all sections (never lose a log)
     const itemTypeMap = {};
     StorageAPI.getInventory().forEach(it => { itemTypeMap[it.id] = it.inventory_type; });
     const currentType = state.inventoryType;
-    const logType = itemTypeMap[entry.item_id] || entry.inventory_type;
+    const logType = itemTypeMap[entry.item_id] || entry.inventory_type || null;
     if (logType && logType !== currentType) return;
 
     // Filter scope check
