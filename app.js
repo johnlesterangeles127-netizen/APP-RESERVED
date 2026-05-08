@@ -651,21 +651,30 @@
     let html = '';
     const td = today();
 
-    Object.keys(grouped).sort((a, b) => b.localeCompare(a)).forEach(dk => {
+    // Auto-expand all groups when a date filter is active, or when there is only one date group
+    const isFiltered = !!(fStart || fEnd || fItem || fType);
+    const dayKeys = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+    const autoExpandAll = isFiltered || dayKeys.length === 1;
+
+    dayKeys.forEach(dk => {
       const isToday = dk === td;
       const dayLogs = grouped[dk];
-      const label = new Date(dk).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+      const label = new Date(dk + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+
+      // Expand: today always, filtered always, single-group always
+      const expanded = isToday || autoExpandAll;
+      const icon = expanded ? '▼' : '▶';
 
       html += `<tr class="stock-date-header" data-dk="${dk}">
         <td colspan="6">
           <button class="stock-date-toggle">
-            <span class="toggle-icon">▼</span>
-            ${label}${isToday ? ' (Today)' : ''} — ${dayLogs.length} entry/entries
+            <span class="toggle-icon">${icon}</span>
+            ${label}${isToday ? ' <span style="color:var(--green);font-size:11px;font-weight:700;">(Today)</span>' : ''} — ${dayLogs.length} entr${dayLogs.length === 1 ? 'y' : 'ies'}
           </button>
         </td>
       </tr>`;
 
-      const show = isToday ? 'table-row' : 'none';
+      const show = expanded ? 'table-row' : 'none';
       dayLogs.forEach(l => {
         html += `<tr class="stock-day-rows" style="display:${show};">
           <td style="font-size:12px;">${new Date(l.date).toLocaleTimeString()}</td>
@@ -688,7 +697,7 @@
       btn.addEventListener('click', e => {
         e.stopPropagation();
         const icon = btn.querySelector('.toggle-icon');
-        const expanded = icon.textContent === '▼';
+        const expanded = icon.textContent.trim() === '▼';
         let row = btn.closest('tr').nextElementSibling;
         while (row && !row.classList.contains('stock-date-header')) {
           if (row.classList.contains('stock-day-rows')) row.style.display = expanded ? 'none' : 'table-row';
@@ -744,13 +753,18 @@
     if (existingHeader) {
       existingHeader.insertAdjacentElement('afterend', dataRow);
       const toggle = existingHeader.querySelector('.stock-date-toggle');
-      if (toggle) toggle.innerHTML = toggle.innerHTML.replace(/(\d+) entry\/entries/, (_, n) => `${Number(n)+1} entry/entries`);
+      if (toggle) {
+        toggle.innerHTML = toggle.innerHTML.replace(/(\d+) entr(?:y|ies)/, (_, n) => {
+          const next = Number(n) + 1;
+          return `${next} entr${next === 1 ? 'y' : 'ies'}`;
+        });
+      }
     } else {
-      const label = new Date(dk).toLocaleDateString('en-US', { weekday:'short', year:'numeric', month:'short', day:'numeric' });
+      const label = new Date(dk + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', year:'numeric', month:'short', day:'numeric' });
       const headerRow = document.createElement('tr');
       headerRow.className  = 'stock-date-header';
       headerRow.dataset.dk = dk;
-      headerRow.innerHTML  = `<td colspan="6"><button class="stock-date-toggle"><span class="toggle-icon">▼</span> ${label}${isToday?' (Today)':''} — 1 entry/entries</button></td>`;
+      headerRow.innerHTML  = `<td colspan="6"><button class="stock-date-toggle"><span class="toggle-icon">▼</span> ${label}${isToday?' <span style="color:var(--green);font-size:11px;font-weight:700;">(Today)</span>':''} — 1 entry</button></td>`;
       headerRow.querySelector('.stock-date-toggle').addEventListener('click', ev => {
         ev.stopPropagation();
         const icon = headerRow.querySelector('.toggle-icon');
@@ -2328,7 +2342,8 @@
     ['invFilterCategory', 'invFilterSupplier'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('change', renderInventory); });
     const low = $('#invFilterLowStock'); if (low) low.addEventListener('change', renderInventory);
     const srch = $('#invSearch'); if (srch) srch.addEventListener('input', renderInventory);
-    ['logFilterItem','logFilterType','logFilterStart','logFilterEnd'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('change', renderStockLog); });
+    ['logFilterItem','logFilterType'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('change', renderStockLog); });
+    ['logFilterStart','logFilterEnd'].forEach(id => { const el = $('#' + id); if (el) { el.addEventListener('change', renderStockLog); el.addEventListener('input', renderStockLog); } });
   }
 
   // ── KEYBOARD NAV ───────────────────────────────────────────────────────────
