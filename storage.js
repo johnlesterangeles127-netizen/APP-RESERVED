@@ -70,7 +70,7 @@
       _loadTable('monthly_top_items','month',      false),
       _loadTable('staff',            'name',       true),
       _loadTable('payroll',          'period',     false),
-      _loadTable('stock_log',        'date',       false, 500),
+      _loadTable('stock_log',        'date',       false, 2000),
       _loadTable('menu_products',    'created_at', true)
     ]);
 
@@ -192,13 +192,21 @@
   }
 
   // ── STOCK LOG ──────────────────────────────────────────────────────────────
-  // app.js calls addStockLog({ item_id, item_name, type, qty, balance, note, date })
+  // app.js calls addStockLog({ item_id, item_name, inventory_type, type, qty, balance, note, date })
+  // inventory_type is kept in the CACHE object for in-session section-scoping,
+  // but is NOT sent to the DB insert because the column may not exist in stock_log.
+  // Section-scoping in renderStockLog falls back to itemTypeMap (inventory lookup).
   function getStockLog() { return cache.stockLog; }
 
   function addStockLog(entry) {
     const row = { id: uid('log'), ...entry };
+    // Add to cache WITH inventory_type so in-session display works immediately
     cache.stockLog.unshift(row);
-    _save(`insert stock_log [${entry.item_name}]`, db.from('stock_log').insert([row]));
+    // Strip inventory_type from DB row — the stock_log table may not have this column.
+    // If you have run migration.sql (ALTER TABLE stock_log ADD COLUMN inventory_type TEXT),
+    // you can remove the line below and the insert will include inventory_type.
+    const { inventory_type: _drop, ...dbRow } = row;
+    _save(`insert stock_log [${entry.item_name}]`, db.from('stock_log').insert([dbRow]));
   }
 
   // ── STAFF ──────────────────────────────────────────────────────────────────
