@@ -630,15 +630,21 @@
       sectionItems.map(it => `<option value="${it.id}" ${it.id === pItem ? 'selected' : ''}>${it.name}</option>`).join('');
 
     const filtered = logs.filter(l => {
-      // Section-scope: prefer item lookup; fall back to stored inventory_type on log.
-      // If NEITHER is known (deleted item, old log), show in ALL sections so logs are never lost.
-      const logType = itemTypeMap[l.item_id] || l.inventory_type || null;
-      if (logType && logType !== currentType) return false;
+      // Section-scope:
+      // 1. Try item lookup first (most accurate — works even if log has no inventory_type)
+      // 2. Fall back to inventory_type stored on the log row
+      // 3. If NEITHER is known (item deleted, old log with no column) → show in ALL sections
+      //    so historical data is NEVER hidden from the user
+      const fromItem = itemTypeMap[l.item_id];
+      const fromLog  = l.inventory_type;
+      const logType  = fromItem || fromLog || null;
+      if (logType !== null && logType !== currentType) return false;
       if (fItem && l.item_id !== fItem) return false;
-      if (fType && l.type    !== fType)  return false;
+      if (fType && l.type    !== fType) return false;
       if (!inRange(l.date, fStart, fEnd)) return false;
       return true;
     }).sort((a, b) => b.date.localeCompare(a.date));
+    // No artificial row limit — show ALL matching entries grouped by day
 
     // Group by day
     const grouped = {};
@@ -651,30 +657,21 @@
     let html = '';
     const td = today();
 
-    // Auto-expand all groups when a date filter is active, or when there is only one date group
-    const isFiltered = !!(fStart || fEnd || fItem || fType);
-    const dayKeys = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
-    const autoExpandAll = isFiltered || dayKeys.length === 1;
-
-    dayKeys.forEach(dk => {
+    Object.keys(grouped).sort((a, b) => b.localeCompare(a)).forEach(dk => {
       const isToday = dk === td;
       const dayLogs = grouped[dk];
-      const label = new Date(dk + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
-
-      // Expand: today always, filtered always, single-group always
-      const expanded = isToday || autoExpandAll;
-      const icon = expanded ? '▼' : '▶';
+      const label = new Date(dk).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
 
       html += `<tr class="stock-date-header" data-dk="${dk}">
         <td colspan="6">
           <button class="stock-date-toggle">
-            <span class="toggle-icon">${icon}</span>
-            ${label}${isToday ? ' <span style="color:var(--green);font-size:11px;font-weight:700;">(Today)</span>' : ''} — ${dayLogs.length} entr${dayLogs.length === 1 ? 'y' : 'ies'}
+            <span class="toggle-icon">▼</span>
+            ${label}${isToday ? ' (Today)' : ''} — ${dayLogs.length} entry/entries
           </button>
         </td>
       </tr>`;
 
-      const show = expanded ? 'table-row' : 'none';
+      const show = isToday ? 'table-row' : 'none';
       dayLogs.forEach(l => {
         html += `<tr class="stock-day-rows" style="display:${show};">
           <td style="font-size:12px;">${new Date(l.date).toLocaleTimeString()}</td>
@@ -697,7 +694,7 @@
       btn.addEventListener('click', e => {
         e.stopPropagation();
         const icon = btn.querySelector('.toggle-icon');
-        const expanded = icon.textContent.trim() === '▼';
+        const expanded = icon.textContent === '▼';
         let row = btn.closest('tr').nextElementSibling;
         while (row && !row.classList.contains('stock-date-header')) {
           if (row.classList.contains('stock-day-rows')) row.style.display = expanded ? 'none' : 'table-row';
@@ -716,12 +713,15 @@
     const tbody = $('#stockLogTbody');
     if (!tbody) return;
 
-    // Section scope check — if type is unknown, show in all sections (never lose a log)
+    // Section scope — same logic as renderStockLog:
+    // only skip if we KNOW the type and it's a different section
     const itemTypeMap = {};
     StorageAPI.getInventory().forEach(it => { itemTypeMap[it.id] = it.inventory_type; });
     const currentType = state.inventoryType;
-    const logType = itemTypeMap[entry.item_id] || entry.inventory_type || null;
-    if (logType && logType !== currentType) return;
+    const fromItem = itemTypeMap[entry.item_id];
+    const fromLog  = entry.inventory_type;
+    const logType  = fromItem || fromLog || null;
+    if (logType !== null && logType !== currentType) return;
 
     // Filter scope check
     const fItem  = $('#logFilterItem').value;
@@ -753,18 +753,13 @@
     if (existingHeader) {
       existingHeader.insertAdjacentElement('afterend', dataRow);
       const toggle = existingHeader.querySelector('.stock-date-toggle');
-      if (toggle) {
-        toggle.innerHTML = toggle.innerHTML.replace(/(\d+) entr(?:y|ies)/, (_, n) => {
-          const next = Number(n) + 1;
-          return `${next} entr${next === 1 ? 'y' : 'ies'}`;
-        });
-      }
+      if (toggle) toggle.innerHTML = toggle.innerHTML.replace(/(\d+) entry\/entries/, (_, n) => `${Number(n)+1} entry/entries`);
     } else {
-      const label = new Date(dk + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', year:'numeric', month:'short', day:'numeric' });
+      const label = new Date(dk).toLocaleDateString('en-US', { weekday:'short', year:'numeric', month:'short', day:'numeric' });
       const headerRow = document.createElement('tr');
       headerRow.className  = 'stock-date-header';
       headerRow.dataset.dk = dk;
-      headerRow.innerHTML  = `<td colspan="6"><button class="stock-date-toggle"><span class="toggle-icon">▼</span> ${label}${isToday?' <span style="color:var(--green);font-size:11px;font-weight:700;">(Today)</span>':''} — 1 entry</button></td>`;
+      headerRow.innerHTML  = `<td colspan="6"><button class="stock-date-toggle"><span class="toggle-icon">▼</span> ${label}${isToday?' (Today)':''} — 1 entry/entries</button></td>`;
       headerRow.querySelector('.stock-date-toggle').addEventListener('click', ev => {
         ev.stopPropagation();
         const icon = headerRow.querySelector('.toggle-icon');
@@ -2342,8 +2337,7 @@
     ['invFilterCategory', 'invFilterSupplier'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('change', renderInventory); });
     const low = $('#invFilterLowStock'); if (low) low.addEventListener('change', renderInventory);
     const srch = $('#invSearch'); if (srch) srch.addEventListener('input', renderInventory);
-    ['logFilterItem','logFilterType'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('change', renderStockLog); });
-    ['logFilterStart','logFilterEnd'].forEach(id => { const el = $('#' + id); if (el) { el.addEventListener('change', renderStockLog); el.addEventListener('input', renderStockLog); } });
+    ['logFilterItem','logFilterType','logFilterStart','logFilterEnd'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('change', renderStockLog); });
   }
 
   // ── KEYBOARD NAV ───────────────────────────────────────────────────────────
