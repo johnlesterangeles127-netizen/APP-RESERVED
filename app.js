@@ -1,4 +1,4 @@
-// app.js — RESERVE
+// app.js — RESERVED
 (function () {
   'use strict';
 
