@@ -21,7 +21,7 @@
     { username: 'ejdizon',        password: 'ej123',        role: 'staff', displayName: 'EJ Dizon' },
     { username: 'faithtolentino', password: 'faith123',     role: 'staff', displayName: 'Faith Tolentino' },
     { username: 'jaymarkamilagan',password: 'jaymark123',   role: 'staff', displayName: 'Jay Mark Amilagan' },
-    { username: 'liezel',  password: 'liezel123',    role: 'staff', displayName: 'Liezel Nicolas' },
+    { username: 'liezel',  password: 'liezel123',    role: 'staff', displayName: 'Liezel' },
     { username: 'rencemedrano',   password: 'rence123',     role: 'staff', displayName: 'Rence Medrano' },
     { username: 'rhechelle',      password: 'rhechelle123', role: 'staff', displayName: 'Rhechelle Ann Madrigal Bacolod' },
     { username: 'ricabarbacena',  password: 'rica123',      role: 'staff', displayName: 'Rica Barbacena' },
