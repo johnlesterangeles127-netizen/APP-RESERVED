@@ -28,6 +28,20 @@
     return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
   }
 
+  // ── SESSION USER ──────────────────────────────────────────────────────────────
+  function getSessionUser() {
+    return sessionStorage.getItem('r_active_user') || localStorage.getItem('r_active_user') || 'Unknown';
+  }
+  function setSessionUser(name, remember) {
+    sessionStorage.setItem('r_active_user', name);
+    if (remember) localStorage.setItem('r_active_user', name);
+    else          localStorage.removeItem('r_active_user');
+  }
+  function clearSessionUser() {
+    sessionStorage.removeItem('r_active_user');
+    localStorage.removeItem('r_active_user');
+  }
+
   // ── BOOT ───────────────────────────────────────────────────────────────────
   async function ensureDefaults() {
     // Merge settings defaults
@@ -58,6 +72,11 @@
     const ok = await _testConnection();
     if (!ok) {
       console.error('⛔ RESERVE: Cannot connect to Supabase. Check your URL and ANON KEY in supabase.js');
+      // Show a visible banner in the UI so the user knows what's wrong
+      const banner = document.createElement('div');
+      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#D32F2F;color:#fff;padding:14px 20px;font-size:14px;font-weight:600;text-align:center;';
+      banner.innerHTML = '⛔ Cannot connect to Supabase — check your URL and ANON KEY in <code>supabase.js</code>. Open the browser console (F12) for details.';
+      document.body.prepend(banner);
       return;
     }
     console.log('✅ RESERVE: Supabase connected');
@@ -103,7 +122,7 @@
         case 'inventory':
           cache.inventory = rows; break;
         case 'sales':
-          cache.sales = rows.map(s => ({ ...s, lines: _parseJ(s.lines, []) })); break;
+          cache.sales = rows.map(s => _unpackSaleFromDB(s)); break;
         case 'expenses':
           cache.expenses = rows; break;
         case 'monthly_top_items':
@@ -111,7 +130,12 @@
         case 'staff':
           cache.staff = rows; break;
         case 'payroll':
-          cache.payroll = rows; break;
+          // 'allowance' column in DB is now repurposed as 'cash_advance' (no schema change needed)
+          cache.payroll = rows.map(p => ({
+            ...p,
+            cash_advance: p.cash_advance ?? p.allowance ?? 0
+          }));
+          break;
         case 'stock_log':
           cache.stockLog = rows; break;
         case 'menu_products':
@@ -119,6 +143,7 @@
       }
     } catch(e) {
       console.error(`❌ Failed to load ${table}:`, e.message || e);
+      console.warn(`Hint: Make sure the "${table}" table exists in your Supabase project and RLS policies allow SELECT.`);
     }
   }
 
@@ -157,8 +182,14 @@
   async function _save(label, promise) {
     try {
       const { error } = await Promise.resolve(promise);
-      if (error) console.error(`❌ ${label}:`, error.message || error);
-      else console.log(`✅ ${label}: saved`);
+      if (error) {
+        console.error(`❌ ${label}:`, error.message || error);
+        if (error.code)    console.error(`   Code: ${error.code}`);
+        if (error.details) console.error(`   Details: ${error.details}`);
+        if (error.hint)    console.error(`   Hint: ${error.hint}`);
+      } else {
+        console.log(`✅ ${label}: saved`);
+      }
     } catch(e) {
       console.error(`❌ ${label} exception:`, e.message || e);
     }
@@ -190,9 +221,66 @@
   function getSales()   { return cache.sales; }
   function saveSales(s) { cache.sales = s; }
 
+  // Pack discount/VAT/order_type into the existing `lines` JSON column so no
+  // DB schema change is needed. Format: { _meta: {...}, lines: [...] }
+  // Pack all sale fields into the `lines` JSON column.
+  // Only sends columns that EXIST in the Supabase sales table: id, date, lines, revenue, cogs, gp
+  // Everything else (discount, vat, order_type, etc.) lives inside the lines JSON _meta block.
+  function _packSaleForDB(sale) {
+    return {
+      id:      sale.id,
+      date:    sale.date,
+      revenue: sale.revenue  ?? 0,
+      cogs:    sale.cogs     ?? 0,
+      gp:      sale.gp       ?? 0,
+      done_by: sale.done_by  || 'Unknown',
+      lines: JSON.stringify({
+        _meta: {
+          order_type:          sale.order_type,
+          discount_type:       sale.discount_type,
+          discount_amt:        sale.discount_amt,
+          vat_amt:             sale.vat_amt,
+          vat_included:        sale.vat_included,
+          service_charge_type: sale.service_charge_type,
+          service_charge_amt:  sale.service_charge_amt,
+          done_by:             sale.done_by || 'Unknown',
+          revenue:             sale.revenue,
+          gp:                  sale.gp,
+          cogs:                sale.cogs
+        },
+        lines: sale.lines || []
+      })
+    };
+  }
+
+  function _unpackSaleFromDB(row) {
+    const parsed = _parseJ(row.lines, null);
+    if (parsed && parsed._meta !== undefined) {
+      const { _meta, lines } = parsed;
+      return {
+        ...row,
+        lines:         lines || [],
+        order_type:    _meta.order_type    ?? row.order_type,
+        discount_type: _meta.discount_type ?? row.discount_type ?? 'none',
+        discount_amt:  Number(_meta.discount_amt  ?? row.discount_amt  ?? 0),
+        vat_amt:       Number(_meta.vat_amt       ?? row.vat_amt       ?? 0),
+        vat_included:        _meta.vat_included        ?? row.vat_included ?? false,
+        service_charge_type: _meta.service_charge_type ?? 'none',
+        service_charge_amt:  Number(_meta.service_charge_amt ?? 0),
+        done_by:             _meta.done_by ?? row.done_by ?? 'Unknown',
+        revenue:       Number(_meta.revenue ?? row.revenue),
+        gp:            Number(_meta.gp      ?? row.gp),
+        cogs:          Number(_meta.cogs    ?? row.cogs),
+      };
+    }
+    // Legacy plain-array format — keep revenue/gp/cogs from DB columns
+    return { ...row, lines: Array.isArray(parsed) ? parsed : [] };
+  }
+
   function addSale(sale) {
+    sale.done_by = sale.done_by || getSessionUser();
     cache.sales.unshift(sale);
-    _save(`insert sale [${sale.id}]`, db.from('sales').insert([{ ...sale, lines: JSON.stringify(sale.lines) }]));
+    _save(`insert sale [${sale.id}]`, db.from('sales').insert([_packSaleForDB(sale)]));
     return sale;
   }
 
@@ -207,6 +295,7 @@
   function saveExpenses(exp) { cache.expenses = exp; }
 
   function addExpense(expense) {
+    expense.done_by = expense.done_by || getSessionUser();
     cache.expenses.unshift(expense);
     _save(`insert expense [${expense.id}]`, db.from('expenses').insert([expense]));
     return expense;
@@ -222,7 +311,7 @@
   function getStockLog() { return cache.stockLog; }
 
   function addStockLog(entry) {
-    const row = { id: uid('log'), ...entry };
+    const row = { id: uid('log'), done_by: getSessionUser(), ...entry };
     // Push to cache immediately with inventory_type for in-session section display
     cache.stockLog.unshift(row);
     // Save to DB — strip inventory_type because your stock_log table may not have
@@ -250,13 +339,18 @@
 
   // ── PAYROLL ────────────────────────────────────────────────────────────────
   // app.js saves: id, staff_id, period, hours_worked, base_pay,
-  //               overtime, allowance, deductions, net_pay
+  //               overtime, cash_advance, deductions, net_pay
+  // Note: cash_advance is stored in the existing DB 'allowance' column —
+  // no schema migration required. On read, 'allowance' is surfaced as 'cash_advance'.
   function getPayroll() { return cache.payroll; }
 
   function upsertPayroll(entry) {
     const idx = cache.payroll.findIndex(p => p.id === entry.id);
     if (idx >= 0) cache.payroll[idx] = entry; else cache.payroll.unshift(entry);
-    _save(`upsert payroll [${entry.id}]`, db.from('payroll').upsert(entry, { onConflict: 'id' }));
+    // Write cash_advance into the existing 'allowance' column so no DB change is needed
+    const { cash_advance, ...rest } = entry;
+    const dbRow = { ...rest, allowance: cash_advance ?? 0 };
+    _save(`upsert payroll [${entry.id}]`, db.from('payroll').upsert(dbRow, { onConflict: 'id' }));
     return entry;
   }
 
@@ -306,7 +400,7 @@
       try {
         const data = JSON.parse(e.target.result);
         if (data.inventory) { cache.inventory = data.inventory; for (const it of data.inventory) await db.from('inventory').upsert(it, { onConflict:'id' }); }
-        if (data.sales)     { cache.sales = data.sales; for (const s of data.sales) await db.from('sales').upsert({...s, lines:JSON.stringify(s.lines)},{onConflict:'id'}); }
+        if (data.sales)     { cache.sales = data.sales; for (const s of data.sales) await db.from('sales').upsert(_packSaleForDB(s),{onConflict:'id'}); }
         if (data.expenses)  { cache.expenses = data.expenses; for (const ex of data.expenses) await db.from('expenses').upsert(ex, {onConflict:'id'}); }
         if (data.staff)     { cache.staff = data.staff; for (const st of data.staff) await db.from('staff').upsert(st, {onConflict:'id'}); }
         if (data.payroll)   { cache.payroll = data.payroll; for (const p of data.payroll) await db.from('payroll').upsert(p, {onConflict:'id'}); }
@@ -366,6 +460,7 @@
   // ── EXPOSE ─────────────────────────────────────────────────────────────────
   window.StorageAPI = {
     ensureDefaults, uid,
+    getSessionUser, setSessionUser, clearSessionUser,
     getInventory, saveInventory, upsertItem, deleteItem, getItemById,
     getSales, saveSales, addSale, deleteSale,
     getExpenses, saveExpenses, addExpense, deleteExpense,
