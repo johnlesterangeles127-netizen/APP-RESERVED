@@ -521,7 +521,7 @@ legend { font-size: 13px; font-weight: 700; color: var(--text); padding: 0 6px; 
 }
 .menu-board-col {
   min-width: 0;
-  max-height: calc(100vh - 140px);
+  max-height: calc(100vh - 50px);
   overflow-y: auto;
   padding-right: 8px;
 }
