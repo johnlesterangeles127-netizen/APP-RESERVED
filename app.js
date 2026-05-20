@@ -15,18 +15,18 @@
 
   const DEFAULT_USERS = [
     { username: 'owner',          password: 'owner123',     role: 'owner', displayName: 'Owner' },
-    { username: 'aira',      password: 'aira123',      role: 'staff', displayName: 'Aira' },
-    { username: 'ariel',   password: 'ariel123',     role: 'staff', displayName: 'Ariel' },
-    { username: 'crystal',     password: 'crystal123',   role: 'staff', displayName: 'Crystal' },
-    { username: 'ej',        password: 'ej123',        role: 'staff', displayName: 'EJ' },
-    { username: 'faith', password: 'faith123',     role: 'staff', displayName: 'Faith' },
-    { username: 'jaymark',password: 'jaymark123',   role: 'staff', displayName: 'Jay' },
-    { username: 'liezel',  password: 'liezel123',    role: 'staff', displayName: 'Liezel' },
-    { username: 'rence',   password: 'rence123',     role: 'staff', displayName: 'Rence' },
-    { username: 'rhechelle',      password: 'rhechelle123', role: 'staff', displayName: 'Ann' },
-    { username: 'rica',  password: 'rica123',      role: 'staff', displayName: 'Rica' },
-    { username: 'rigene',password: 'rigene123',    role: 'staff', displayName: 'Rigene' },
-    { username: 'rod',      password: 'rod123',       role: 'staff', displayName: 'Rod' },
+    { username: 'airadizon',      password: 'aira123',      role: 'staff', displayName: 'Aira Dizon' },
+    { username: 'ariellavapie',   password: 'ariel123',     role: 'staff', displayName: 'Ariel Evangelista Lavapie' },
+    { username: 'crystalliu',     password: 'crystal123',   role: 'staff', displayName: 'Crystal Liu' },
+    { username: 'ejdizon',        password: 'ej123',        role: 'staff', displayName: 'EJ Dizon' },
+    { username: 'faithtolentino', password: 'faith123',     role: 'staff', displayName: 'Faith Tolentino' },
+    { username: 'jaymarkamilagan',password: 'jaymark123',   role: 'staff', displayName: 'Jay Mark Amilagan' },
+    { username: 'liezelnicolas',  password: 'liezel123',    role: 'staff', displayName: 'Liezel Nicolas' },
+    { username: 'rencemedrano',   password: 'rence123',     role: 'staff', displayName: 'Rence Medrano' },
+    { username: 'rhechelle',      password: 'rhechelle123', role: 'staff', displayName: 'Rhechelle Ann Madrigal Bacolod' },
+    { username: 'ricabarbacena',  password: 'rica123',      role: 'staff', displayName: 'Rica Barbacena' },
+    { username: 'rigenebarbacena',password: 'rigene123',    role: 'staff', displayName: 'Rigene Barbacena' },
+    { username: 'rodjarlan',      password: 'rod123',       role: 'staff', displayName: 'Rod Jarlan' },
   ];
   function getUsers() {
     try { const saved = localStorage.getItem('r_users'); return saved ? JSON.parse(saved) : DEFAULT_USERS; }
