@@ -13,10 +13,27 @@
     booted: false
   };
 
-  const USERS = [
-    { username: 'owner', password: 'owner123', role: 'owner' },
-    { username: 'staff', password: 'staff123', role: 'staff' }
+  const DEFAULT_USERS = [
+    { username: 'owner',          password: 'owner123',     role: 'owner', displayName: 'Owner' },
+    { username: 'airadizon',      password: 'aira123',      role: 'staff', displayName: 'Aira Dizon' },
+    { username: 'ariellavapie',   password: 'ariel123',     role: 'staff', displayName: 'Ariel Evangelista Lavapie' },
+    { username: 'crystalliu',     password: 'crystal123',   role: 'staff', displayName: 'Crystal Liu' },
+    { username: 'ejdizon',        password: 'ej123',        role: 'staff', displayName: 'EJ Dizon' },
+    { username: 'faithtolentino', password: 'faith123',     role: 'staff', displayName: 'Faith Tolentino' },
+    { username: 'jaymarkamilagan',password: 'jaymark123',   role: 'staff', displayName: 'Jay Mark Amilagan' },
+    { username: 'liezelnicolas',  password: 'liezel123',    role: 'staff', displayName: 'Liezel Nicolas' },
+    { username: 'rencemedrano',   password: 'rence123',     role: 'staff', displayName: 'Rence Medrano' },
+    { username: 'rhechelle',      password: 'rhechelle123', role: 'staff', displayName: 'Rhechelle Ann Madrigal Bacolod' },
+    { username: 'ricabarbacena',  password: 'rica123',      role: 'staff', displayName: 'Rica Barbacena' },
+    { username: 'rigenebarbacena',password: 'rigene123',    role: 'staff', displayName: 'Rigene Barbacena' },
+    { username: 'rodjarlan',      password: 'rod123',       role: 'staff', displayName: 'Rod Jarlan' },
   ];
+  function getUsers() {
+    try { const saved = localStorage.getItem('r_users'); return saved ? JSON.parse(saved) : DEFAULT_USERS; }
+    catch { return DEFAULT_USERS; }
+  }
+  function saveUsers(u) { localStorage.setItem('r_users', JSON.stringify(u)); }
+  if (!localStorage.getItem('r_users')) saveUsers(DEFAULT_USERS);
   const OWNER_ONLY = ['dashboard', 'expenses', 'staff', 'reports', 'settings'];
 
   // ── HELPERS ────────────────────────────────────────────────────────────────
@@ -51,14 +68,20 @@
     return (!start || d >= start) && (!end || d <= end);
   }
 
+  // Read final revenue/GP/COGS from a stored sale — respects discount + VAT.
+  // Falls back to Calc.saleTotals only for legacy records that predate discount support.
+  function saleRevenue(s) { return (s.revenue != null) ? Number(s.revenue) : Calc.saleTotals(s).revenue; }
+  function saleGP(s)      { return (s.gp      != null) ? Number(s.gp)      : Calc.saleTotals(s).gp;      }
+  function saleCOGS(s)    { return (s.cogs     != null) ? Number(s.cogs)    : Calc.saleTotals(s).cogs;    }
+
   function sumRevenue(sales, start, end) {
     return sales.filter(s => inRange(s.date, start, end))
-      .reduce((sum, s) => sum + Calc.saleTotals(s).revenue, 0);
+      .reduce((sum, s) => sum + saleRevenue(s), 0);
   }
 
   function sumGP(sales, start, end) {
     return sales.filter(s => inRange(s.date, start, end))
-      .reduce((sum, s) => sum + Calc.saleTotals(s).gp, 0);
+      .reduce((sum, s) => sum + saleGP(s), 0);
   }
 
   function sumExp(expenses, start, end) {
@@ -90,7 +113,7 @@
       const u = $('#loginUsername').value.trim();
       const p = $('#loginPassword').value;
       const rem = $('#loginRemember').checked;
-      const matched = USERS.find(x => x.username === u && x.password === p);
+      const matched = getUsers().find(x => x.username === u && x.password === p);
       const err = $('#loginError');
 
       if (matched) {
@@ -98,6 +121,7 @@
         sessionStorage.setItem('r_role', matched.role);
         if (rem) { localStorage.setItem('r_rem', '1'); localStorage.setItem('r_role', matched.role); }
         state.role = matched.role;
+        StorageAPI.setSessionUser(matched.displayName || matched.username, rem);
         $('#loginScreen').classList.remove('active');
         $('#appMain').classList.remove('hidden');
         $('#loginForm').reset();
@@ -116,7 +140,9 @@
       ['r_in', 'r_role'].forEach(k => sessionStorage.removeItem(k));
       ['r_rem', 'r_role'].forEach(k => localStorage.removeItem(k));
       state.role = null; state.booted = false;
+      StorageAPI.clearSessionUser();
       const badge = $('#roleBadge'); if (badge) badge.remove();
+      const ub = $('#userBadge'); if (ub) ub.remove();
       $('#appMain').classList.add('hidden');
       $('#loginScreen').classList.add('active');
       $('#loginForm').reset();
@@ -149,6 +175,14 @@
       b.style.cssText = 'font-size:12px;background:var(--green-bg);color:var(--green);padding:4px 10px;border-radius:20px;font-weight:600;border:1px solid #A5D6A7;';
       $('.header-actions').prepend(b);
     }
+    let userBadge = $('#userBadge');
+    if (!userBadge) {
+      userBadge = document.createElement('span');
+      userBadge.id = 'userBadge';
+      userBadge.style.cssText = 'font-size:12px;background:#E3F2FD;color:#1565C0;padding:4px 10px;border-radius:20px;font-weight:600;border:1px solid #90CAF9;margin-right:6px;';
+      $('.header-actions').prepend(userBadge);
+    }
+    userBadge.textContent = '👤 ' + StorageAPI.getSessionUser();
   }
 
   function guardSection(sec) {
@@ -314,8 +348,8 @@
       const fSales = sales.filter(s => inRange(s.date, fs, fe));
       const fExp   = expenses.filter(e => inRange(e.date, fs, fe));
 
-      const rev = fSales.reduce((sum, s) => sum + Calc.saleTotals(s).revenue, 0);
-      const gp  = fSales.reduce((sum, s) => sum + Calc.saleTotals(s).gp, 0);
+      const rev = fSales.reduce((sum, s) => sum + saleRevenue(s), 0);
+      const gp  = fSales.reduce((sum, s) => sum + saleGP(s), 0);
       const exp = fExp.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
       const np  = gp - exp;
 
@@ -330,18 +364,8 @@
       $('#stripTxn').textContent       = fSales.length;
       strip.style.display              = 'block';
 
-      // Update top items for the filtered period
-      const topEl = $('#dashTopPeriodLabel');
-      if (topEl) topEl.textContent = `${fromLbl} to ${toLbl}`;
-      renderTopItemsFromSales(fSales, items);
-
     } else {
       strip.style.display = 'none';
-      const topEl = $('#dashTopPeriodLabel');
-      if (topEl) topEl.textContent = 'This Month';
-      const topByCat = Calc.topSellingCurrentMonth(sales, items, 0, 5);
-      renderTopItems(topByCat);
-      saveMonthlySnapshot(topByCat);
     }
 
     // Chart — fixed Jan to Dec for selected year
@@ -388,67 +412,6 @@
     });
   }
 
-  function renderTopItemsFromSales(filteredSales, inventory) {
-    const map = {};
-    filteredSales.forEach(sale => sale.lines.forEach(l => {
-      const key = l.item_id || l.item_name; if (!key) return;
-      if (!map[key]) map[key] = { label: l.item_name || key, category: inventory.find(i => i.id === l.item_id)?.category || '—', qty: 0, gp: 0 };
-      const t = Calc.lineTotals(l);
-      map[key].qty += l.qty; map[key].gp += t.gp;
-    }));
-    const top = Object.values(map).sort((a, b) => b.qty - a.qty).slice(0, 10);
-    const container = $('#topItemsContainer');
-    if (!top.length) { container.innerHTML = '<div class="no-data-placeholder">No sales in this period</div>'; return; }
-    container.innerHTML = '<div class="top-items-container" style="padding:8px;">' +
-      top.map((it, i) => {
-        const rank = i + 1;
-        const cls = rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : 'rank-other';
-        return `<div class="ranking-item">
-          <div class="ranking-badge ${cls}">${rank}</div>
-          <div class="ranking-info">
-            <div class="ranking-name">${it.label}</div>
-            <div class="ranking-category">${it.category}</div>
-          </div>
-          <div class="ranking-metrics">
-            <div class="metric-item"><div class="metric-label">Qty</div><div class="metric-value">${it.qty}</div></div>
-            <div class="metric-item"><div class="metric-label">GP</div><div class="metric-value">${cur(it.gp)}</div></div>
-          </div>
-        </div>`;
-      }).join('') + '</div>';
-  }
-
-  function renderTopItems(topByCat) {
-    const container = $('#topItemsContainer');
-    const all = [];
-    Object.entries(topByCat).forEach(([cat, its]) => its.forEach(it => all.push({ ...it, category: cat })));
-    all.sort((a, b) => b.qty - a.qty);
-    const top = all.slice(0, 10);
-    if (!top.length) { container.innerHTML = '<div class="no-data-placeholder">No sales recorded this month yet</div>'; return; }
-    container.innerHTML = '<div class="top-items-container" style="padding:8px;">' + top.map((it, i) => {
-      const rank = i + 1;
-      const cls = rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : 'rank-other';
-      return `<div class="ranking-item">
-        <div class="ranking-badge ${cls}">${rank}</div>
-        <div class="ranking-info">
-          <div class="ranking-name">${it.label || 'Unknown'}</div>
-          <div class="ranking-category">${it.category || '—'}</div>
-        </div>
-        <div class="ranking-metrics">
-          <div class="metric-item"><div class="metric-label">Qty</div><div class="metric-value">${it.qty}</div></div>
-          <div class="metric-item"><div class="metric-label">GP</div><div class="metric-value">${cur(it.gp || 0)}</div></div>
-        </div>
-      </div>`;
-    }).join('') + '</div>';
-  }
-
-  function saveMonthlySnapshot(topByCat) {
-    const all = [];
-    Object.entries(topByCat).forEach(([cat, its]) => its.forEach(it => all.push({ ...it, category: cat })));
-    all.sort((a, b) => b.qty - a.qty);
-    StorageAPI.saveMonthlyTopRecord(StorageAPI.getCurrentMonthKey(),
-      all.slice(0, 20).map((it, i) => ({ rank: i + 1, label: it.label || 'Unknown', category: it.category, qty: it.qty, gp: it.gp || 0 }))
-    );
-  }
 
   // ── INVENTORY ──────────────────────────────────────────────────────────────
   function renderInventory() {
@@ -663,7 +626,7 @@
       const label = new Date(dk).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
 
       html += `<tr class="stock-date-header" data-dk="${dk}">
-        <td colspan="6">
+        <td colspan="7">
           <button class="stock-date-toggle">
             <span class="toggle-icon">▼</span>
             ${label}${isToday ? ' (Today)' : ''} — ${dayLogs.length} entry/entries
@@ -680,11 +643,12 @@
           <td style="font-weight:700;color:${l.type === 'in' ? 'var(--green)' : 'var(--red)'};">${l.type === 'in' ? '+' : '-'}${l.qty}</td>
           <td>${l.balance}</td>
           <td style="font-size:12px;color:var(--muted);">${l.note || ''}</td>
+          <td style="font-size:12px;font-weight:700;color:#1565C0;">${l.done_by || '—'}</td>
         </tr>`;
       });
     });
 
-    if (!html) html = '<tr><td colspan="6" class="no-data-placeholder">No log entries</td></tr>';
+    if (!html) html = '<tr><td colspan="7" class="no-data-placeholder">No log entries</td></tr>';
 
     const tbody = $('#stockLogTbody');
     tbody.innerHTML = html;
@@ -747,6 +711,7 @@
       <td style="font-weight:700;color:${entry.type === 'in' ? 'var(--green)' : 'var(--red)'};">${entry.type === 'in' ? '+' : '-'}${entry.qty}</td>
       <td>${entry.balance}</td>
       <td style="font-size:12px;color:var(--muted);">${entry.note || ''}</td>
+      <td style="font-size:12px;font-weight:700;color:#1565C0;">${entry.done_by || StorageAPI.getSessionUser()}</td>
     `;
 
     const existingHeader = tbody.querySelector(`.stock-date-header[data-dk="${dk}"]`);
@@ -759,7 +724,7 @@
       const headerRow = document.createElement('tr');
       headerRow.className  = 'stock-date-header';
       headerRow.dataset.dk = dk;
-      headerRow.innerHTML  = `<td colspan="6"><button class="stock-date-toggle"><span class="toggle-icon">▼</span> ${label}${isToday?' (Today)':''} — 1 entry/entries</button></td>`;
+      headerRow.innerHTML  = `<td colspan="7"><button class="stock-date-toggle"><span class="toggle-icon">▼</span> ${label}${isToday?' (Today)':''} — 1 entry/entries</button></td>`;
       headerRow.querySelector('.stock-date-toggle').addEventListener('click', ev => {
         ev.stopPropagation();
         const icon = headerRow.querySelector('.toggle-icon');
@@ -1010,6 +975,7 @@
   }
 
   function renderSaleTotals() {
+    if (!$('#saleLines')) return;
     const lines = $$('#saleLines .line-item');
     const totals = lines.reduce((acc, line) => {
       const t = Calc.lineTotals({
@@ -1019,17 +985,16 @@
       });
       return { revenue: acc.revenue + t.revenue, cogs: acc.cogs + t.cogs, gp: acc.gp + t.gp };
     }, { revenue: 0, cogs: 0, gp: 0 });
-    $('#saleRevenue').textContent = cur(totals.revenue);
-    $('#saleCogs').textContent    = cur(totals.cogs);
-    $('#saleGP').textContent      = cur(totals.gp);
+    if ($('#saleRevenue')) $('#saleRevenue').textContent = cur(totals.revenue);
+    if ($('#saleCogs'))    $('#saleCogs').textContent    = cur(totals.cogs);
+    if ($('#saleGP'))      $('#saleGP').textContent      = cur(totals.gp);
   }
 
   function resetSaleForm() {
     const nowLocal = new Date();
     nowLocal.setMinutes(nowLocal.getMinutes() - nowLocal.getTimezoneOffset());
-    $('#saleDate').value = nowLocal.toISOString().slice(0, 16);
-    $('#saleLines').innerHTML = '';
-    $('#saleLines').appendChild(createSaleLine());
+    if ($('#saleDate'))  $('#saleDate').value = nowLocal.toISOString().slice(0, 16);
+    if ($('#saleLines')) { $('#saleLines').innerHTML = ''; $('#saleLines').appendChild(createSaleLine()); }
     renderSaleTotals();
   }
 
@@ -1039,10 +1004,10 @@
     if (_salesReady) return;
     _salesReady = true;
 
-    $('#addSaleLine').addEventListener('click', () => $('#saleLines').appendChild(createSaleLine()));
-    $('#saleCancelBtn').addEventListener('click', resetSaleForm);
+    if ($('#addSaleLine'))  $('#addSaleLine').addEventListener('click', () => $('#saleLines').appendChild(createSaleLine()));
+    if ($('#saleCancelBtn')) $('#saleCancelBtn').addEventListener('click', resetSaleForm);
 
-    $('#saleSubmitBtn').addEventListener('click', () => {
+    if ($('#saleSubmitBtn')) $('#saleSubmitBtn').addEventListener('click', () => {
       const inv = StorageAPI.getInventory();
       const lines = $$('#saleLines .line-item').map(line => {
         const sel  = line.querySelector('.li-item');
@@ -1063,11 +1028,14 @@
       const saleDate = $('#saleDate').value;
       if (!saleDate) { toast('Please set the sale date and time', 'error'); return; }
 
+      const _t = Calc.saleTotals({ lines });
       const sale = {
-        id:    StorageAPI.uid('sale'),
-        date:  new Date(saleDate).toISOString(),
+        id:      StorageAPI.uid('sale'),
+        date:    new Date(saleDate).toISOString(),
         lines,
-        ...Calc.saleTotals({ lines })
+        revenue: _t.revenue,
+        cogs:    _t.cogs,
+        gp:      _t.gp
       };
 
       // Deduct stock + log
@@ -1085,7 +1053,7 @@
       toast(`Sale of ${cur(sale.revenue)} recorded ✓`, 'success');
       resetSaleForm();
       renderDashboard(); renderInventory(); renderSalesHistory();
-    });
+    }); // end saleSubmitBtn
 
     // Tabs
     $$('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
@@ -1100,11 +1068,107 @@
       if (btn.dataset.tab === 'salesPerItem') renderSalesPerItem();
     }));
 
-    ['salesFilterStart', 'salesFilterEnd', 'salesFilterItem'].forEach(id =>
-      $('#' + id).addEventListener('input', renderSalesHistory)
-    );
+    // Sales month picker
+    (function() {
+      const sales = StorageAPI.getSales();
+      buildMonthOptions(sales.map(s => s.date), 'salesFilterMonth', true);
+      const sel = $('#salesFilterMonth');
+      if (sel) {
+        applySalesMonthFilter(sel.value);
+        sel.addEventListener('change', () => { applySalesMonthFilter(sel.value); renderSalesHistory(); });
+      }
+      const allBtn = $('#salesFilterAll');
+      if (allBtn) allBtn.addEventListener('click', () => {
+        $('#salesFilterStart').value = '';
+        $('#salesFilterEnd').value   = '';
+        if ($('#salesFilterMonth')) $('#salesFilterMonth').value = '';
+        renderSalesHistory();
+      });
+    })();
+    ['salesFilterItem'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('input', renderSalesHistory); });
     $('#perItemApply').addEventListener('click', renderSalesPerItem);
     $('#exportPerItemCsv').addEventListener('click', exportPerItemCsv);
+  }
+
+  // Mirror of the deduction logic in recordMenuSale — runs in reverse on delete
+  function restoreSaleStock(sale) {
+    const inv = StorageAPI.getInventory();
+
+    // Rebuild the same deductMap that was used when the sale was recorded
+    const restoreMap = {};
+    for (const line of (sale.lines || [])) {
+      const product = StorageAPI.getMenuProductById(line.item_id);
+      if (!product?.recipes?.length) continue;
+      for (const r of product.recipes) {
+        if (!r.inventory_item_id) continue;
+        const needed = Number(r.quantity) * (Number(line.qty) || 0);
+        if (!restoreMap[r.inventory_item_id]) {
+          restoreMap[r.inventory_item_id] = {
+            item: inv.find(i => i.id === r.inventory_item_id) || null,
+            ingredient_name: r.ingredient_name || r.inventory_item_id,
+            unit: r.unit || '',
+            qty: 0
+          };
+        }
+        restoreMap[r.inventory_item_id].qty += needed;
+      }
+    }
+
+    if (!Object.keys(restoreMap).length) return; // no recipes — nothing to restore
+
+    const restored = [];
+    for (const [itemId, d] of Object.entries(restoreMap)) {
+      if (!d.item) continue;
+      const newQty = (Number(d.item.stock_qty) || 0) + d.qty;
+      d.item.stock_qty  = newQty;
+      d.item.updated_at = new Date().toISOString();
+      StorageAPI.upsertItem(d.item);
+      const logEntry = {
+        item_id:        itemId,
+        item_name:      d.ingredient_name,
+        inventory_type: d.item.inventory_type,
+        type:           'return',
+        qty:            d.qty,
+        balance:        newQty,
+        note:           `Sale voided — ${sale.id}`,
+        date:           new Date().toISOString()
+      };
+      StorageAPI.addStockLog(logEntry);
+      injectLogRow(logEntry);
+      restored.push(`${d.ingredient_name} +${d.qty}${d.unit}`);
+    }
+
+    if (restored.length) {
+      toast(`♻️ Stock restored: ${restored.join(', ')}`, 'success');
+      renderInventory();
+    }
+  }
+
+  function serviceChargeBadge(sale) {
+    const amt  = Number(sale.service_charge_amt) || 0;
+    const type = sale.service_charge_type;
+    if (!type || type === 'none' || amt === 0) return `<span style="color:var(--muted);font-size:11px;">—</span>`;
+    const label = type === 'percent' ? 'Service (%)' : 'Service (Fixed)';
+    return `<span style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;">
+      <span style="background:#E3F2FD;color:#1565C0;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:700;white-space:nowrap;">${label}</span>
+      <span style="font-size:11px;color:#1565C0;font-weight:600;">${cur(amt)}</span>
+    </span>`;
+  }
+
+  function discountBadge(sale) {
+    const type  = sale.discount_type;
+    const amt   = Number(sale.discount_amt) || 0;
+    if (!type || type === 'none' || amt === 0) return `<span style="color:var(--muted);font-size:11px;">—</span>`;
+    let label = '';
+    if      (type === 'senior')  label = 'Senior/PWD';
+    else if (type === 'percent') label = `${sale.discount_pct || ''}% Off`.trim();
+    else if (type === 'fixed')   label = 'Fixed';
+    else if (type === 'other')   label = sale.discount_label || 'Custom';
+    else                         label = type;
+    return `<span style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;">
+      <span style="background:#FFF3E0;color:#E65100;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:700;white-space:nowrap;">${label}</span>
+      <span style="font-size:11px;color:#c00;font-weight:600;">−${cur(amt)}</span>
+    </span>`;
   }
 
   function renderSalesHistory() {
@@ -1132,7 +1196,7 @@
       const label    = new Date(dk).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
 
       html += `<tr class="sales-date-header" data-dk="${dk}">
-        <td colspan="6">
+        <td colspan="9">
           <button class="sales-date-toggle">
             <span class="toggle-icon">▼</span>
             ${label}${isToday ? ' (Today)' : ''} — ${daySales.length} sale(s) &nbsp;·&nbsp; ${cur(dayRev)}
@@ -1149,12 +1213,15 @@
           <td>${cur(sale.revenue)}</td>
           <td>${cur(sale.cogs)}</td>
           <td style="color:var(--green);font-weight:600;">${cur(sale.gp || (sale.revenue - sale.cogs))}</td>
+          <td>${discountBadge(sale)}</td>
+          <td>${serviceChargeBadge(sale)}</td>
+          <td style="font-size:12px;font-weight:700;color:#1565C0;">${sale.done_by || '—'}</td>
           <td><button class="btn btn-danger btn-sm" data-act="del" data-id="${sale.id}">Delete</button></td>
         </tr>`;
       });
     });
 
-    if (!html) html = '<tr><td colspan="6" class="no-data-placeholder">No sales found</td></tr>';
+    if (!html) html = '<tr><td colspan="9" class="no-data-placeholder">No sales found</td></tr>';
 
     const tbody = $('#salesTbody');
     tbody.innerHTML = html;
@@ -1175,9 +1242,14 @@
     });
 
     tbody.querySelectorAll('[data-act="del"]').forEach(btn => btn.addEventListener('click', () => {
-      if (!confirm('Delete this sale?')) return;
+      if (!confirm('Delete this sale? The ingredients used will be returned to inventory.')) return;
+      // Must fetch the sale BEFORE deleteSale removes it from cache
+      const sale = StorageAPI.getSales().find(s => s.id === btn.dataset.id);
+      if (sale) restoreSaleStock(sale);
       StorageAPI.deleteSale(btn.dataset.id);
-      toast('Sale deleted'); renderSalesHistory(); renderDashboard();
+      toast('Sale deleted');
+      renderSalesHistory();
+      renderDashboard();
     }));
 
     $('#exportSalesCsv').onclick = () => {
@@ -1216,11 +1288,15 @@
       <td>${cur(sale.revenue)}</td>
       <td>${cur(sale.cogs)}</td>
       <td style="color:var(--green);font-weight:600;">${cur(sale.gp || (sale.revenue - sale.cogs))}</td>
+      <td>${discountBadge(sale)}</td>
+      <td>${serviceChargeBadge(sale)}</td>
+      <td style="font-size:12px;font-weight:700;color:#1565C0;">${sale.done_by || StorageAPI.getSessionUser()}</td>
       <td><button class="btn btn-danger btn-sm" data-act="del" data-id="${sale.id}">Delete</button></td>
     `;
 
     dataRow.querySelector('[data-act="del"]').addEventListener('click', () => {
-      if (!confirm('Delete this sale?')) return;
+      if (!confirm('Delete this sale? The ingredients used will be returned to inventory.')) return;
+      restoreSaleStock(sale);
       StorageAPI.deleteSale(sale.id);
       toast('Sale deleted'); renderSalesHistory(); renderDashboard();
     });
@@ -1241,7 +1317,7 @@
       const headerRow = document.createElement('tr');
       headerRow.className  = 'sales-date-header';
       headerRow.dataset.dk = dk;
-      headerRow.innerHTML  = `<td colspan="6"><button class="sales-date-toggle"><span class="toggle-icon">▼</span> ${label}${isToday?' (Today)':''} — 1 sale(s) &nbsp;·&nbsp; ${cur(sale.revenue)}</button></td>`;
+      headerRow.innerHTML  = `<td colspan="9"><button class="sales-date-toggle"><span class="toggle-icon">▼</span> ${label}${isToday?' (Today)':''} — 1 sale(s) &nbsp;·&nbsp; ${cur(sale.revenue)}</button></td>`;
       headerRow.querySelector('.sales-date-toggle').addEventListener('click', ev => {
         ev.stopPropagation();
         const icon = headerRow.querySelector('.toggle-icon');
@@ -1266,8 +1342,7 @@
       const mon = new Date(d); mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
       const wk = mon.toISOString().slice(0, 10);
       if (!weeks[wk]) weeks[wk] = { revenue: 0, cogs: 0, gp: 0, count: 0 };
-      const t = Calc.saleTotals(sale);
-      weeks[wk].revenue += t.revenue; weeks[wk].cogs += t.cogs; weeks[wk].gp += t.gp; weeks[wk].count++;
+      weeks[wk].revenue += saleRevenue(sale); weeks[wk].cogs += saleCOGS(sale); weeks[wk].gp += saleGP(sale); weeks[wk].count++;
     });
     $('#salesWeeklyTbody').innerHTML = Object.keys(weeks).sort((a, b) => b.localeCompare(a)).map(wk => {
       const d = new Date(wk), e = new Date(wk); e.setDate(d.getDate() + 6);
@@ -1282,7 +1357,7 @@
     sales.forEach(s => {
       const mk = s.date.slice(0, 7);
       if (!months[mk]) months[mk] = { revenue: 0, cogs: 0, gp: 0, count: 0 };
-      const t = Calc.saleTotals(s); months[mk].revenue += t.revenue; months[mk].cogs += t.cogs; months[mk].gp += t.gp; months[mk].count++;
+      months[mk].revenue += saleRevenue(s); months[mk].cogs += saleCOGS(s); months[mk].gp += saleGP(s); months[mk].count++;
     });
     $('#salesMonthlyTbody').innerHTML = Object.keys(months).sort((a, b) => b.localeCompare(a)).map(mk => {
       const m = months[mk];
@@ -1295,7 +1370,7 @@
     sales.forEach(s => {
       const yr = s.date.slice(0, 4);
       if (!years[yr]) years[yr] = { revenue: 0, cogs: 0, gp: 0, count: 0 };
-      const t = Calc.saleTotals(s); years[yr].revenue += t.revenue; years[yr].cogs += t.cogs; years[yr].gp += t.gp; years[yr].count++;
+      years[yr].revenue += saleRevenue(s); years[yr].cogs += saleCOGS(s); years[yr].gp += saleGP(s); years[yr].count++;
     });
     $('#salesYearlyTbody').innerHTML = Object.keys(years).sort((a, b) => b.localeCompare(a)).map(yr => {
       const y = years[yr];
@@ -1408,8 +1483,9 @@
       <td style="font-size:12px;">${e.tin || '—'}</td>
       <td style="font-weight:600;">${cur(e.amount)}</td>
       <td style="font-size:12px;max-width:200px;">${e.note || ''}</td>
+      <td style="font-size:12px;font-weight:700;color:#1565C0;">${e.done_by || '—'}</td>
       <td><button class="btn btn-danger btn-sm" data-act="del" data-id="${e.id}">Delete</button></td>
-    </tr>`).join('') : '<tr><td colspan="7" class="no-data-placeholder">No expenses found</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="8" class="no-data-placeholder">No expenses found</td></tr>';
 
     $$('#expensesTbody [data-act="del"]').forEach(btn => btn.addEventListener('click', () => {
       if (!confirm('Delete this expense?')) return;
@@ -1444,7 +1520,7 @@
 
     $('#addPayrollBtn').addEventListener('click', () => openPayrollDialog());
     $('#payrollDialogCancel').addEventListener('click', () => $('#payrollDialog').close());
-    ['payrollBase','payrollOvertime','payrollAllowance','payrollDeductions'].forEach(id =>
+    ['payrollBase','payrollOvertime','payrollCashAdvance','payrollDeductions'].forEach(id =>
       $('#' + id).addEventListener('input', updatePayrollPreview)
     );
     $('#payrollHours').addEventListener('input', autoCalculateBaseFromHours);
@@ -1452,13 +1528,13 @@
     $('#payrollForm').addEventListener('submit', e => {
       e.preventDefault();
       const id    = $('#payrollEntryId').value || StorageAPI.uid('pay');
-      const base  = Number($('#payrollBase').value)       || 0;
-      const ot    = Number($('#payrollOvertime').value)   || 0;
-      const allow = Number($('#payrollAllowance').value)  || 0;
-      const ded   = Number($('#payrollDeductions').value) || 0;
+      const base  = Number($('#payrollBase').value)           || 0;
+      const ot    = Number($('#payrollOvertime').value)       || 0;
+      const ca    = Number($('#payrollCashAdvance').value)    || 0;
+      const ded   = Number($('#payrollDeductions').value)     || 0;
       const staffId = $('#payrollStaffId').value;
       if (!staffId) { toast('Please select a staff member', 'error'); return; }
-      StorageAPI.upsertPayroll({ id, staff_id: staffId, period: $('#payrollPeriod').value, hours_worked: Number($('#payrollHours').value) || 0, base_pay: base, overtime: ot, allowance: allow, deductions: ded, net_pay: base + ot + allow - ded, created_at: new Date().toISOString() });
+      StorageAPI.upsertPayroll({ id, staff_id: staffId, period: $('#payrollPeriod').value, hours_worked: Number($('#payrollHours').value) || 0, base_pay: base, overtime: ot, cash_advance: ca, deductions: ded, net_pay: base + ot - ca - ded, created_at: new Date().toISOString() });
       $('#payrollDialog').close(); toast('Payroll saved ✓', 'success'); renderStaff();
     });
 
@@ -1495,7 +1571,7 @@
         $('#payrollEntryId').value = entry.id; sel.value = entry.staff_id;
         $('#payrollPeriod').value = entry.period; $('#payrollHours').value = entry.hours_worked;
         $('#payrollBase').value = entry.base_pay; $('#payrollOvertime').value = entry.overtime;
-        $('#payrollAllowance').value = entry.allowance; $('#payrollDeductions').value = entry.deductions;
+        $('#payrollCashAdvance').value = entry.cash_advance || 0; $('#payrollDeductions').value = entry.deductions;
       }
     } else {
       $('#payrollForm').reset(); $('#payrollEntryId').value = '';
@@ -1526,7 +1602,10 @@
   }
 
   function updatePayrollPreview() {
-    const net = (Number($('#payrollBase').value) || 0) + (Number($('#payrollOvertime').value) || 0) + (Number($('#payrollAllowance').value) || 0) - (Number($('#payrollDeductions').value) || 0);
+    const net = (Number($('#payrollBase').value) || 0)
+              + (Number($('#payrollOvertime').value) || 0)
+              - (Number($('#payrollCashAdvance').value) || 0)
+              - (Number($('#payrollDeductions').value) || 0);
     $('#payrollNetPreview').textContent = cur(net);
   }
 
@@ -1571,7 +1650,7 @@
         <td title="Hours × Hourly Rate: ${hoursWorked} hrs @ ${cur(hourlyRate)}/hr">${hoursWorked ?? '—'}</td>
         <td style="font-size:12px;color:var(--muted);" title="Computed: ${hoursWorked} × ${cur(hourlyRate)}">${cur(computedBase)}</td>
         <td>${cur(p.overtime)}</td>
-        <td>${cur(p.allowance)}</td>
+        <td style="color:var(--red);">${cur(p.cash_advance || 0)}</td>
         <td style="color:var(--red);">${cur(p.deductions)}</td>
         <td style="font-weight:700;color:var(--green);">${cur(p.net_pay)}</td>
         <td style="white-space:nowrap;">
@@ -1613,9 +1692,9 @@
     const hoursWorked = Number(entry.hours_worked) || 0;
     const base        = Number(entry.base_pay) || (hourlyRate > 0 ? hourlyRate * hoursWorked : salary);
     const ot          = Number(entry.overtime) || 0;
-    const allow       = Number(entry.allowance) || 0;
+    const ca          = Number(entry.cash_advance) || 0;
     const ded         = Number(entry.deductions) || 0;
-    const net         = Number(entry.net_pay) || (base + ot + allow - ded);
+    const net         = Number(entry.net_pay) || (base + ot - ca - ded);
 
     $('#payslipContent').innerHTML = `
       <div style="text-align:center;padding-bottom:14px;border-bottom:2px solid #eee;margin-bottom:14px;">
@@ -1635,7 +1714,7 @@
         <tbody>
           <tr><td style="padding:6px 8px;">Base Pay${hourlyRate > 0 ? ` (${hoursWorked} hrs × ${cur(hourlyRate)})` : ''}</td><td style="text-align:right;font-weight:600;">${cur(base)}</td></tr>
           ${ot > 0 ? `<tr><td style="padding:6px 8px;">Overtime Pay</td><td style="text-align:right;">${cur(ot)}</td></tr>` : ''}
-          ${allow > 0 ? `<tr><td style="padding:6px 8px;">Allowance</td><td style="text-align:right;">${cur(allow)}</td></tr>` : ''}
+          ${ca > 0 ? `<tr><td style="padding:6px 8px;color:#D32F2F;">Cash Advance</td><td style="text-align:right;color:#D32F2F;">−${cur(ca)}</td></tr>` : ''}
           ${ded > 0 ? `<tr><td style="padding:6px 8px;color:#D32F2F;">Deductions (SSS/PhilHealth/Pag-IBIG)</td><td style="text-align:right;color:#D32F2F;">−${cur(ded)}</td></tr>` : ''}
         </tbody>
       </table>
@@ -1657,9 +1736,9 @@
     const hoursWorked = Number(entry.hours_worked) || 0;
     const base        = Number(entry.base_pay) || (hourlyRate > 0 ? hourlyRate * hoursWorked : salary);
     const ot          = Number(entry.overtime) || 0;
-    const allow       = Number(entry.allowance) || 0;
+    const ca          = Number(entry.cash_advance) || 0;
     const ded         = Number(entry.deductions) || 0;
-    const net         = Number(entry.net_pay) || (base + ot + allow - ded);
+    const net         = Number(entry.net_pay) || (base + ot - ca - ded);
 
     const win = window.open('', '_blank', 'width=480,height=700');
     if (!win) { toast('Allow pop-ups to print payslips', 'error'); return; }
@@ -1703,7 +1782,7 @@
       <tbody>
         <tr><td>Base Pay${hourlyRate > 0 ? ` (${hoursWorked} hrs × ${cur(hourlyRate)})` : ''}</td><td style="text-align:right;font-weight:600;">${cur(base)}</td></tr>
         ${ot > 0 ? `<tr><td>Overtime Pay</td><td style="text-align:right;">${cur(ot)}</td></tr>` : ''}
-        ${allow > 0 ? `<tr><td>Allowance</td><td style="text-align:right;">${cur(allow)}</td></tr>` : ''}
+        ${ca > 0 ? `<tr><td style="color:#D32F2F;">Cash Advance</td><td style="text-align:right;color:#D32F2F;">−${cur(ca)}</td></tr>` : ''}
         ${ded > 0 ? `<tr><td style="color:#D32F2F;">Deductions (SSS / PhilHealth / Pag-IBIG)</td><td style="text-align:right;color:#D32F2F;">−${cur(ded)}</td></tr>` : ''}
       </tbody>
     </table>
@@ -1751,8 +1830,8 @@
       return (!start || p.period + '-28' >= start) && (!end || p.period + '-01' <= end);
     });
 
-    const salesRev = fSales.reduce((sum, s) => sum + Calc.saleTotals(s).revenue, 0);
-    const salesGP  = fSales.reduce((sum, s) => sum + Calc.saleTotals(s).gp, 0);
+    const salesRev = fSales.reduce((sum, s) => sum + saleRevenue(s), 0);
+    const salesGP  = fSales.reduce((sum, s) => sum + saleGP(s), 0);
     const expTotal = fExp.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
     const payTotal = fPay.reduce((sum, p) => sum + (Number(p.net_pay) || 0), 0);
     const netP     = salesGP - expTotal - payTotal;
@@ -1769,7 +1848,7 @@
     fSales.forEach(s => {
       const dk = s.date.slice(0, 10);
       if (!dayMap[dk]) dayMap[dk] = { revenue: 0, gp: 0, count: 0 };
-      const t = Calc.saleTotals(s); dayMap[dk].revenue += t.revenue; dayMap[dk].gp += t.gp; dayMap[dk].count++;
+      dayMap[dk].revenue += saleRevenue(s); dayMap[dk].gp += saleGP(s); dayMap[dk].count++;
     });
     const dayKeys = Object.keys(dayMap).sort((a, b) => b.localeCompare(a)).slice(0, 15);
     $('#repSalesBreakdownTbody').innerHTML = dayKeys.map(dk => {
@@ -1821,8 +1900,8 @@
     const fSales = sales.filter(s => inRange(s.date, start, end));
     const fExp   = expenses.filter(e => inRange(e.date, start, end));
     const fPay   = payroll.filter(p => (!start || (p.period + '-28') >= start) && (!end || (p.period + '-01') <= end));
-    const salesRev = fSales.reduce((sum, s) => sum + Calc.saleTotals(s).revenue, 0);
-    const salesGP  = fSales.reduce((sum, s) => sum + Calc.saleTotals(s).gp, 0);
+    const salesRev = fSales.reduce((sum, s) => sum + saleRevenue(s), 0);
+    const salesGP  = fSales.reduce((sum, s) => sum + saleGP(s), 0);
     const expTotal = fExp.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
     const payTotal = fPay.reduce((sum, p) => sum + (Number(p.net_pay) || 0), 0);
     StorageAPI.downloadCSV('report.csv', [
@@ -1894,6 +1973,12 @@
           menuOrder.length = 0;
           const saleDateEl = $('#menuSaleDate');
           if (saleDateEl) saleDateEl.value = today();
+          if ($('#menuDiscountType'))        $('#menuDiscountType').value = 'none';
+          if ($('#menuDiscountValue'))       $('#menuDiscountValue').value = '0';
+          if ($('#menuDiscountCustomLabel')) $('#menuDiscountCustomLabel').value = '';
+          if ($('#menuIncludeVat'))          $('#menuIncludeVat').checked = false;
+          if ($('#menuServiceChargeType'))   $('#menuServiceChargeType').value = 'none';
+          if ($('#menuServiceChargeValue'))  $('#menuServiceChargeValue').value = '0';
           renderOrderPad(); refreshMenuBadges();
         }
       });
@@ -1928,6 +2013,12 @@
 
       $('#menuSearch').addEventListener('input',    renderMenuBoard);
       $('#menuFilterCat').addEventListener('change', renderMenuBoard);
+      $('#menuDiscountType').addEventListener('change', () => { updateOrderTotalsUI(); });
+      $('#menuDiscountValue').addEventListener('input',  () => { updateOrderTotalsUI(); });
+      $('#menuDiscountCustomLabel').addEventListener('input', () => { updateOrderTotalsUI(); });
+      $('#menuIncludeVat').addEventListener('change',   () => { updateOrderTotalsUI(); });
+      $('#menuServiceChargeType').addEventListener('change', () => { updateOrderTotalsUI(); });
+      $('#menuServiceChargeValue').addEventListener('input',  () => { updateOrderTotalsUI(); });
     }
   }
 
@@ -2086,20 +2177,50 @@
     });
   }
 
+  function calcOrderTotals() {
+    const subtotal = menuOrder.reduce((s, o) => s + o.qty * o.price, 0);
+    const discType  = $('#menuDiscountType')?.value || 'none';
+    const discVal   = Number($('#menuDiscountValue')?.value) || 0;
+    const useVat    = $('#menuIncludeVat')?.checked || false;
+    const svcType   = $('#menuServiceChargeType')?.value || 'none';
+    const svcVal    = Number($('#menuServiceChargeValue')?.value) || 0;
+    const customLabel = ($('#menuDiscountCustomLabel')?.value || '').trim();
+
+    let discount = 0;
+    if (discType === 'percent') discount = subtotal * Math.min(discVal, 100) / 100;
+    else if (discType === 'fixed')  discount = Math.min(discVal, subtotal);
+    else if (discType === 'senior') discount = subtotal * 0.20;
+    else if (discType === 'other')  discount = Math.min(discVal, subtotal);
+
+    const afterDiscount = subtotal - discount;
+
+    let serviceCharge = 0;
+    if (svcType === 'percent') serviceCharge = afterDiscount * Math.min(svcVal, 100) / 100;
+    else if (svcType === 'fixed') serviceCharge = Math.max(0, svcVal);
+
+    const afterService = afterDiscount + serviceCharge;
+    const vat = useVat ? afterService * 0.12 : 0;
+    const total = afterService + vat;
+    return { subtotal, discount, vat, total, useVat, serviceCharge, customLabel, discType };
+  }
+
   function renderOrderPad() {
     const pad = $('#menuOrderLines');
     if (!menuOrder.length) {
       pad.innerHTML = `<div style="text-align:center;padding:20px 8px;color:var(--muted);font-size:13px;">👆 Tap a product to add it</div>`;
-      $('#menuSubtotal').textContent   = cur(0);
-      $('#menuTotal').textContent      = cur(0);
+      $('#menuSubtotal').textContent         = cur(0);
+      $('#menuDiscountAmt').textContent      = cur(0);
+      $('#menuServiceChargeAmt').textContent = cur(0);
+      $('#menuVatAmt').textContent           = cur(0);
+      $('#menuTotal').textContent            = cur(0);
       $('#menuOrderCount').textContent = '0 items';
       return;
     }
-    let total = 0;
     pad.innerHTML = menuOrder.map((line, i) => {
-      const lt = line.qty * line.price; total += lt;
+      const lt = line.qty * line.price;
       return `<div class="order-line">
         <div class="order-line-name">${line.name}</div>
+        <div style="font-size:11px;color:var(--muted);">${cur(line.price)} × ${line.qty}</div>
         <div class="order-line-controls">
           <button class="ol-minus btn btn-ghost btn-sm btn-icon" data-idx="${i}">−</button>
           <span class="ol-qty">${line.qty}</span>
@@ -2110,9 +2231,52 @@
       </div>`;
     }).join('');
     const totalItems = menuOrder.reduce((s, o) => s + o.qty, 0);
-    $('#menuSubtotal').textContent   = cur(total);
-    $('#menuTotal').textContent      = cur(total);
     $('#menuOrderCount').textContent = `${totalItems} item${totalItems !== 1 ? 's' : ''}`;
+    updateOrderTotalsUI();
+  }
+
+  function updateOrderTotalsUI() {
+    const { subtotal, discount, vat, total, useVat, serviceCharge, customLabel, discType } = calcOrderTotals();
+    const svcType = $('#menuServiceChargeType')?.value || 'none';
+
+    $('#menuSubtotal').textContent         = cur(subtotal);
+    $('#menuDiscountAmt').textContent      = discount > 0 ? `−${cur(discount)}` : cur(0);
+    $('#menuServiceChargeAmt').textContent = cur(serviceCharge);
+    $('#menuVatAmt').textContent           = cur(vat);
+    $('#menuTotal').textContent            = cur(total);
+
+    // Dynamic discount label
+    const discLabelEl = $('#menuDiscountLabel');
+    if (discLabelEl) {
+      if (discType === 'senior')       discLabelEl.textContent = 'Senior / PWD Discount (20%)';
+      else if (discType === 'percent') discLabelEl.textContent = `Discount (${$('#menuDiscountValue')?.value || 0}%)`;
+      else if (discType === 'other' && customLabel) discLabelEl.textContent = customLabel;
+      else                             discLabelEl.textContent = 'Discount';
+    }
+
+    // Show/hide discount row
+    const discRow = $('#menuDiscountRow');
+    if (discRow) discRow.style.display = (discount > 0 || discType !== 'none') ? 'flex' : 'none';
+
+    // Show/hide service charge row
+    const svcRow = $('#menuServiceChargeRow');
+    if (svcRow) svcRow.style.display = (serviceCharge > 0 || svcType !== 'none') ? 'flex' : 'none';
+
+    // Show/hide VAT row
+    const vatRow = $('#menuVatRow');
+    if (vatRow) vatRow.style.display = useVat ? 'flex' : 'none';
+
+    // Hide discount value input for senior/none
+    const valWrap = $('#menuDiscountValueWrap');
+    if (valWrap) valWrap.style.display = (discType === 'none' || discType === 'senior') ? 'none' : 'flex';
+
+    // Show/hide custom label input (only for 'other')
+    const customLabelWrap = $('#menuDiscountCustomLabelWrap');
+    if (customLabelWrap) customLabelWrap.style.display = (discType === 'other') ? 'block' : 'none';
+
+    // Hide service charge value input when 'none'
+    const svcValWrap = $('#menuServiceChargeValueWrap');
+    if (svcValWrap) svcValWrap.style.display = (svcType === 'none') ? 'none' : 'flex';
   }
 
   function recordMenuSale() {
@@ -2150,7 +2314,27 @@
       ? new Date(saleDateRaw + 'T' + new Date().toTimeString().slice(0, 8)).toISOString()
       : new Date().toISOString();
     const saleLines = menuOrder.map(o => ({ item_id: o.product_id, item_name: o.name, qty: o.qty, sell_price: o.price, cost_price: 0 }));
-    const sale = { id: StorageAPI.uid('sale'), date: saleDate, lines: saleLines, ...Calc.saleTotals({ lines: saleLines }) };
+    const { subtotal, discount, vat, total, serviceCharge, customLabel, discType } = calcOrderTotals();
+    const useVat    = $('#menuIncludeVat')?.checked || false;
+    const orderType = $('#menuOrderType')?.value || 'Walk-in';
+    const svcType   = $('#menuServiceChargeType')?.value || 'none';
+    const baseTotals = Calc.saleTotals({ lines: saleLines });
+    const sale = {
+      id:                   StorageAPI.uid('sale'),
+      date:                 saleDate,
+      lines:                saleLines,
+      cogs:                 baseTotals.cogs,
+      order_type:           orderType,
+      discount_type:        discType,
+      discount_label:       discType === 'other' ? customLabel : undefined,
+      discount_amt:         discount,
+      service_charge_type:  svcType,
+      service_charge_amt:   serviceCharge,
+      vat_amt:              vat,
+      vat_included:         useVat,
+      revenue:              total,
+      gp:                   total - baseTotals.cogs
+    };
     StorageAPI.addSale(sale);
 
     // Inject into sales history table instantly
@@ -2183,6 +2367,13 @@
 
     menuOrder.length = 0;
     $('#menuOrderNote').value = '';
+    // Reset all order fields for next order
+    if ($('#menuDiscountType'))        $('#menuDiscountType').value = 'none';
+    if ($('#menuDiscountValue'))       $('#menuDiscountValue').value = '0';
+    if ($('#menuDiscountCustomLabel')) $('#menuDiscountCustomLabel').value = '';
+    if ($('#menuIncludeVat'))          $('#menuIncludeVat').checked = false;
+    if ($('#menuServiceChargeType'))   $('#menuServiceChargeType').value = 'none';
+    if ($('#menuServiceChargeValue'))  $('#menuServiceChargeValue').value = '0';
     // Reset date back to today for next order
     const saleDateEl = $('#menuSaleDate');
     if (saleDateEl) saleDateEl.value = today();
@@ -2195,10 +2386,28 @@
   function printMenuReceipt() {
     if (!menuOrder.length) { toast('Add products before printing', 'error'); return; }
     const tableNote = $('#menuOrderNote').value.trim();
-    const total     = menuOrder.reduce((s, o) => s + o.qty * o.price, 0);
+    const orderType = $('#menuOrderType')?.value || 'Walk-in';
+    const { subtotal, discount, vat, total, useVat, serviceCharge, customLabel, discType } = calcOrderTotals();
+    const svcType   = $('#menuServiceChargeType')?.value || 'none';
     const now       = new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
     const win       = window.open('', '_blank', 'width=380,height=640');
     if (!win) { toast('Allow pop-ups to print receipts', 'error'); return; }
+
+    // Determine discount label for receipt
+    let discReceiptLabel = 'Discount';
+    if (discType === 'senior')       discReceiptLabel = 'Senior / PWD Discount (20%)';
+    else if (discType === 'percent') discReceiptLabel = `Discount (${$('#menuDiscountValue')?.value || 0}%)`;
+    else if (discType === 'other' && customLabel) discReceiptLabel = customLabel;
+
+    const discountRow = discount > 0
+      ? `<tr><td>${discReceiptLabel}</td><td class="r" style="color:#c00;">−${cur(discount)}</td></tr>`
+      : '';
+    const serviceChargeRow = serviceCharge > 0
+      ? `<tr><td>Service Charge</td><td class="r">${cur(serviceCharge)}</td></tr>`
+      : '';
+    const vatRow = useVat
+      ? `<tr><td>VAT (12%)</td><td class="r">${cur(vat)}</td></tr>`
+      : '';
     win.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
     <style>
       *{box-sizing:border-box;margin:0;padding:0;}
@@ -2216,10 +2425,17 @@
       @media print{body{padding:4px;}}
     </style></head><body>
     <h1>🍽️ RESERVE</h1><div class="tagline">Restaurant Manager</div>
-    <div class="meta">${now}${tableNote ? `<br><strong>${tableNote}</strong>` : ''}</div>
+    <div class="meta">${now}<br>${orderType}${tableNote ? `<br><strong>${tableNote}</strong>` : ''}</div>
     <hr>
     <table>${menuOrder.map(o => `
       <tr><td><div class="item-name">${o.name}</div><div class="item-sub">${o.qty} × ${cur(o.price)}</div></td><td class="r">${cur(o.qty * o.price)}</td></tr>`).join('')}
+    </table>
+    <hr>
+    <table>
+      <tr><td>Subtotal</td><td class="r">${cur(subtotal)}</td></tr>
+      ${discountRow}
+      ${serviceChargeRow}
+      ${vatRow}
     </table>
     <hr>
     <table><tr><td class="total-label">TOTAL</td><td class="total-amt">${cur(total)}</td></tr></table>
@@ -2331,13 +2547,75 @@
 
   // ── INVENTORY FILTERS SETUP ────────────────────────────────────────────────
   let _invFiltersReady = false;
+
+  // ── MONTH FILTER HELPER ────────────────────────────────────────────────────
+  function buildMonthOptions(dates, selectId, defaultToCurrentMonth = true) {
+    const el = $('#' + selectId);
+    if (!el) return;
+    // Collect unique YYYY-MM keys
+    const months = Array.from(new Set(dates.map(d => (d || '').slice(0, 7))))
+      .filter(Boolean).sort((a, b) => b.localeCompare(a));
+    // Current month key
+    const now = new Date();
+    const currentKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    // Always include current month even if no data yet
+    if (!months.includes(currentKey)) months.unshift(currentKey);
+    el.innerHTML = months.map(m => {
+      const [y, mo] = m.split('-');
+      const label = new Date(Number(y), Number(mo) - 1, 1)
+        .toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      return `<option value="${m}">${label}</option>`;
+    }).join('');
+    // Default to current month
+    if (defaultToCurrentMonth && months.includes(currentKey)) el.value = currentKey;
+    return el.value;
+  }
+
+  function monthToRange(ym) {
+    if (!ym) return { start: null, end: null };
+    const [y, m] = ym.split('-').map(Number);
+    const start = `${y}-${String(m).padStart(2,'0')}-01`;
+    const end   = new Date(y, m, 0).toISOString().slice(0, 10);
+    return { start, end };
+  }
+
+
+  function applyLogMonthFilter(ym) {
+    const { start, end } = monthToRange(ym);
+    if ($('#logFilterStart')) $('#logFilterStart').value = start || '';
+    if ($('#logFilterEnd'))   $('#logFilterEnd').value   = end   || '';
+  }
+
+  function applySalesMonthFilter(ym) {
+    const { start, end } = monthToRange(ym);
+    if ($('#salesFilterStart')) $('#salesFilterStart').value = start || '';
+    if ($('#salesFilterEnd'))   $('#salesFilterEnd').value   = end   || '';
+  }
+
   function setupInventoryFilters() {
     if (_invFiltersReady) return;
     _invFiltersReady = true;
     ['invFilterCategory', 'invFilterSupplier'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('change', renderInventory); });
     const low = $('#invFilterLowStock'); if (low) low.addEventListener('change', renderInventory);
     const srch = $('#invSearch'); if (srch) srch.addEventListener('input', renderInventory);
-    ['logFilterItem','logFilterType','logFilterStart','logFilterEnd'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('change', renderStockLog); });
+    // Stock log month picker
+    (function() {
+      const logs = StorageAPI.getStockLog();
+      buildMonthOptions(logs.map(l => l.date), 'logFilterMonth', true);
+      const sel = $('#logFilterMonth');
+      if (sel) {
+        applyLogMonthFilter(sel.value);
+        sel.addEventListener('change', () => { applyLogMonthFilter(sel.value); renderStockLog(); });
+      }
+      const allBtn = $('#logFilterAll');
+      if (allBtn) allBtn.addEventListener('click', () => {
+        $('#logFilterStart').value = '';
+        $('#logFilterEnd').value   = '';
+        if ($('#logFilterMonth')) $('#logFilterMonth').value = '';
+        renderStockLog();
+      });
+    })();
+    ['logFilterItem','logFilterType'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('change', renderStockLog); });
   }
 
   // ── KEYBOARD NAV ───────────────────────────────────────────────────────────
@@ -2427,9 +2705,9 @@
     const { start: mStart, end: mEnd } = getMonthRange();
     const { start: yStart, end: yEnd } = getYearRange();
 
-    const rev  = fSales.reduce((s, x) => s + Calc.saleTotals(x).revenue, 0);
-    const cogs = fSales.reduce((s, x) => s + Calc.saleTotals(x).cogs, 0);
-    const gp   = fSales.reduce((s, x) => s + Calc.saleTotals(x).gp, 0);
+    const rev  = fSales.reduce((s, x) => s + saleRevenue(x), 0);
+    const cogs = fSales.reduce((s, x) => s + saleCOGS(x), 0);
+    const gp   = fSales.reduce((s, x) => s + saleGP(x), 0);
     const exp  = fExp.reduce((s, e) => s + (Number(e.amount) || 0), 0);
     const np   = gp - exp;
 
@@ -2629,9 +2907,9 @@
     const fSales = sales.filter(s => inRange(s.date, start, end));
     const fExp   = expenses.filter(e => inRange(e.date, start, end));
 
-    const rev  = fSales.reduce((s, x) => s + Calc.saleTotals(x).revenue, 0);
-    const cogs = fSales.reduce((s, x) => s + Calc.saleTotals(x).cogs, 0);
-    const gp   = fSales.reduce((s, x) => s + Calc.saleTotals(x).gp, 0);
+    const rev  = fSales.reduce((s, x) => s + saleRevenue(x), 0);
+    const cogs = fSales.reduce((s, x) => s + saleCOGS(x), 0);
+    const gp   = fSales.reduce((s, x) => s + saleGP(x), 0);
     const exp  = fExp.reduce((s, e) => s + (Number(e.amount) || 0), 0);
     const np   = gp - exp;
 
@@ -2694,6 +2972,13 @@
   // ── RENDER ALL ─────────────────────────────────────────────────────────────
   function renderAll() {
     renderDashboard();
+    // Set current-month default for stock log + sales before first render
+    (function() {
+      const now = new Date();
+      const ym = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+      applyLogMonthFilter(ym);
+      applySalesMonthFilter(ym);
+    })();
     renderInventory();
     renderSalesHistory();
     renderExpenses();
