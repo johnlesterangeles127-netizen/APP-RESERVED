@@ -28,7 +28,16 @@
 
   // Sale totals
   function saleTotals(sale, defaultTaxPct=0) {
-    const totals = sale.lines.reduce((acc, line) => {
+    // If sale already has pre-calculated revenue (e.g., from menu with discount),
+    // use that and adjust GP accordingly
+    if (sale.revenue !== undefined && typeof sale.revenue === 'number') {
+      const cogs = (sale.lines || []).reduce((sum, line) => sum + (line.cost_price || 0) * (Number(line.qty) || 0), 0);
+      const gp = sale.revenue - cogs;
+      return { revenue: sale.revenue, cogs, gp };
+    }
+
+    // Legacy: recalculate from line items
+    const totals = (sale.lines || []).reduce((acc, line) => {
       const t = lineTotals(line, defaultTaxPct);
       acc.revenue += t.revenue;
       acc.cogs += t.cogs;
