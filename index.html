@@ -142,11 +142,6 @@
           <canvas id="salesExpensesChart"></canvas>
         </div>
 
-        <div class="card" style="margin-bottom:16px;">
-          <div class="card-header">🏆 Top Selling Items <span id="dashTopPeriodLabel">This Month</span></div>
-          <div id="topItemsContainer"><div class="no-data-placeholder">No sales data yet</div></div>
-        </div>
-
         <div class="card">
           <div class="card-header">⚠️ Low Stock Alerts</div>
           <ul id="alertList" class="alert-list"><li class="ok">✅ All stock levels are good</li></ul>
@@ -199,15 +194,17 @@
               <option value="out">📤 Manual Out</option>
               <option value="sale">🛒 Sale</option>
             </select>
-            <label>From <input type="date" id="logFilterStart" style="width:140px;"></label>
-            <label>To <input type="date" id="logFilterEnd" style="width:140px;"></label>
+            <select id="logFilterMonth" style="max-width:180px;"></select>
+            <button id="logFilterAll" class="btn btn-ghost btn-sm">Show All</button>
+            <input type="date" id="logFilterStart" style="display:none;">
+            <input type="date" id="logFilterEnd" style="display:none;">
             <button id="exportLogCsv" class="btn btn-secondary btn-sm">⬇ Export</button>
           </div>
         </div>
         <div class="table-wrapper">
           <table class="table">
             <thead>
-              <tr><th>Date &amp; Time</th><th>Item</th><th>Type</th><th>Qty Change</th><th>Balance After</th><th>Note</th></tr>
+              <tr><th>Date &amp; Time</th><th>Item</th><th>Type</th><th>Qty Change</th><th>Balance After</th><th>Note</th><th>Done By</th></tr>
             </thead>
             <tbody id="stockLogTbody" class="zebra"></tbody>
           </table>
@@ -244,30 +241,111 @@
               <div class="card menu-order-card">
                 <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
                   <span>🧾 Current Order</span>
-                  <span id="menuOrderCount" style="font-size:12px;color:var(--muted);">0 items</span>
+                  <span id="menuOrderCount">0 items</span>
                 </div>
-                <div style="padding:8px 0 6px;">
-                  <label style="font-size:12px;color:var(--muted);">Table / Customer (optional)</label>
-                  <input id="menuOrderNote" type="text" placeholder="e.g. Table 3, Take-out" style="margin-top:4px;" />
-                </div>
-                <div style="padding:0 0 6px;">
-                  <label style="font-size:12px;color:var(--muted);">Sale Date <span style="font-size:10px;color:var(--muted);">(defaults to today)</span></label>
-                  <input id="menuSaleDate" type="date" style="margin-top:4px;width:100%;" />
-                </div>
-                <div id="menuOrderLines" style="min-height:60px;max-height:300px;overflow-y:auto;border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:6px 0;margin:6px 0;"></div>
-                <div style="padding:6px 0 10px;">
-                  <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-bottom:6px;">
-                    <span>Subtotal</span><span id="menuSubtotal">₱0.00</span>
+
+                <!-- Meta: table note, date, order type -->
+                <div class="pos-meta-section">
+                  <div class="pos-field pos-field-full">
+                    <label for="menuOrderNote">Table / Customer</label>
+                    <input id="menuOrderNote" type="text" placeholder="e.g. Table 3, Take-out, John" />
                   </div>
-                  <div style="display:flex;justify-content:space-between;font-weight:700;font-size:18px;">
-                    <span>TOTAL</span><span id="menuTotal" style="color:var(--green);">₱0.00</span>
+                  <div class="pos-field">
+                    <label for="menuSaleDate">Sale Date</label>
+                    <input id="menuSaleDate" type="date" />
+                  </div>
+                  <div class="pos-field">
+                    <label for="menuOrderType">Order Type</label>
+                    <select id="menuOrderType">
+                      <option value="Walk-in">Walk-in</option>
+                      <option value="Take-out">Take-out</option>
+                      <option value="Delivery">Delivery</option>
+                      <option value="Online">Online</option>
+                    </select>
                   </div>
                 </div>
-                <div id="menuReceiptNote" style="display:none;background:var(--green-bg);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--green);font-weight:600;"></div>
-                <div style="display:flex;flex-direction:column;gap:8px;">
+
+                <!-- Order lines -->
+                <div id="menuOrderLines"></div>
+
+                <!-- Discount + service charge + VAT -->
+                <div class="pos-charges-section">
+                  <!-- Discount row -->
+                  <div class="pos-charges-row">
+                    <div class="pos-field">
+                      <label for="menuDiscountType">Discount Type</label>
+                      <select id="menuDiscountType">
+                        <option value="none">No Discount</option>
+                        <option value="percent">Percentage (%)</option>
+                        <option value="fixed">Fixed Amount (₱)</option>
+                        <option value="senior">Senior / PWD (20%)</option>
+                        <option value="other">Other (Custom)</option>
+                      </select>
+                    </div>
+                    <div class="pos-field" id="menuDiscountValueWrap">
+                      <label for="menuDiscountValue">Discount Value</label>
+                      <input id="menuDiscountValue" type="number" min="0" step="0.01" value="0" />
+                    </div>
+                  </div>
+                  <!-- Custom discount label -->
+                  <div class="pos-field" id="menuDiscountCustomLabelWrap" style="display:none;">
+                    <label for="menuDiscountCustomLabel">Discount Label / Reason</label>
+                    <input id="menuDiscountCustomLabel" type="text" placeholder="e.g. Employee Discount, Loyalty Card" />
+                  </div>
+                  <!-- Service charge row -->
+                  <div class="pos-charges-row">
+                    <div class="pos-field">
+                      <label for="menuServiceChargeType">Service Charge</label>
+                      <select id="menuServiceChargeType">
+                        <option value="none">No Service Charge</option>
+                        <option value="percent">Percentage (%)</option>
+                        <option value="fixed">Fixed Amount (₱)</option>
+                      </select>
+                    </div>
+                    <div class="pos-field" id="menuServiceChargeValueWrap">
+                      <label for="menuServiceChargeValue">Charge Value</label>
+                      <input id="menuServiceChargeValue" type="number" min="0" step="0.01" value="0" />
+                    </div>
+                  </div>
+                  <!-- VAT toggle -->
+                  <label class="pos-vat-toggle">
+                    <input id="menuIncludeVat" type="checkbox" />
+                    Include VAT (12%)
+                  </label>
+                </div>
+
+                <!-- Totals -->
+                <div class="pos-totals-section">
+                  <div class="pos-totals-box">
+                    <div class="pos-total-row">
+                      <span class="pos-total-label">Subtotal</span>
+                      <span class="pos-total-val" id="menuSubtotal">₱0.00</span>
+                    </div>
+                    <div class="pos-total-row pos-discount-row" id="menuDiscountRow" style="display:none;">
+                      <span class="pos-total-label" id="menuDiscountLabel">Discount</span>
+                      <span class="pos-total-val" id="menuDiscountAmt">−₱0.00</span>
+                    </div>
+                    <div class="pos-total-row" id="menuServiceChargeRow" style="display:none;">
+                      <span class="pos-total-label">Service Charge</span>
+                      <span class="pos-total-val" id="menuServiceChargeAmt">₱0.00</span>
+                    </div>
+                    <div class="pos-total-row" id="menuVatRow" style="display:none;">
+                      <span class="pos-total-label">VAT (12%)</span>
+                      <span class="pos-total-val" id="menuVatAmt">₱0.00</span>
+                    </div>
+                    <div class="pos-total-row pos-total-final">
+                      <span class="pos-total-label">TOTAL</span>
+                      <span class="pos-total-val" id="menuTotal">₱0.00</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Actions -->
+                <div id="menuReceiptNote" style="display:none;background:var(--green-bg);padding:10px 18px;font-size:13px;color:var(--green);font-weight:600;border-top:1px solid #A5D6A7;"></div>
+                <div class="pos-actions-section">
                   <button id="menuRecordSaleBtn" class="btn btn-primary">✅ Record Sale</button>
                   <button id="menuPrintReceiptBtn" class="btn btn-secondary">🖨️ Print Receipt</button>
-                  <button id="menuClearOrderBtn" class="btn btn-ghost btn-sm" style="color:var(--red);">🗑️ Clear Order</button>
+                  <button id="menuClearOrderBtn" class="btn btn-ghost btn-sm">🗑️ Clear Order</button>
                 </div>
               </div>
             </div>
@@ -343,32 +421,7 @@
       <section id="sales" class="section">
         <div class="section-header"><h2>Sales</h2><div class="section-actions"><button id="printSalesBtn" class="btn btn-secondary btn-sm">🖨️ Print View</button></div></div>
 
-        <!-- Record Sale Form -->
-        <div class="form">
-          <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
-            <div class="form-row" style="flex:1;min-width:200px;margin:0;">
-              <label for="saleDate">Date &amp; Time</label>
-              <input type="datetime-local" id="saleDate" required />
-            </div>
-            <p class="helper" style="margin:0;padding-top:20px;">Stock will be auto-deducted on save.</p>
-          </div>
 
-          <div id="saleLines" class="line-items"></div>
-
-          <button type="button" id="addSaleLine" class="btn btn-secondary btn-sm">+ Add Item Line</button>
-
-          <!-- Sale totals -->
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px;">
-            <div class="card kpi" style="padding:12px;"><div class="kpi-title">Revenue</div><div id="saleRevenue" class="kpi-value" style="font-size:18px;">₱0.00</div></div>
-            <div class="card kpi" style="padding:12px;"><div class="kpi-title">COGS</div><div id="saleCogs" class="kpi-value" style="font-size:18px;">₱0.00</div></div>
-            <div class="card kpi" style="padding:12px;"><div class="kpi-title">Gross Profit</div><div id="saleGP" class="kpi-value" style="font-size:18px;">₱0.00</div></div>
-          </div>
-
-          <div class="form-actions">
-            <button type="button" id="saleSubmitBtn" class="btn btn-primary">✅ Record Sale</button>
-            <button type="button" id="saleCancelBtn" class="btn btn-secondary">✕ Clear</button>
-          </div>
-        </div>
 
         <!-- Sales Tabs -->
         <div class="tab-bar">
@@ -381,14 +434,16 @@
 
         <div id="salesHistory" class="tab-panel active">
           <div class="filters">
-            <label>From <input type="date" id="salesFilterStart" style="width:140px;"></label>
-            <label>To <input type="date" id="salesFilterEnd" style="width:140px;"></label>
+            <select id="salesFilterMonth" style="max-width:180px;"></select>
+            <button id="salesFilterAll" class="btn btn-ghost btn-sm">Show All</button>
+            <input type="date" id="salesFilterStart" style="display:none;">
+            <input type="date" id="salesFilterEnd" style="display:none;">
             <input type="search" id="salesFilterItem" placeholder="Search by item…" style="max-width:180px;" />
             <button id="exportSalesCsv" class="btn btn-secondary btn-sm">⬇ Export CSV</button>
           </div>
           <div class="table-wrapper">
             <table class="table">
-              <thead><tr><th>Time</th><th>Items Sold</th><th>Revenue</th><th>COGS</th><th>Gross Profit</th><th>Action</th></tr></thead>
+              <thead><tr><th>Time</th><th>Items Sold</th><th>Revenue</th><th>COGS</th><th>Gross Profit</th><th>Discount</th><th>Service Charge</th><th>Done By</th><th>Action</th></tr></thead>
               <tbody id="salesTbody" class="zebra"></tbody>
             </table>
           </div>
@@ -501,14 +556,14 @@
         <div class="table-wrapper">
           <table class="table">
             <thead>
-              <tr><th>Date</th><th>Account</th><th>Category</th><th>TIN</th><th>Amount</th><th>Details</th><th>Action</th></tr>
+              <tr><th>Date</th><th>Account</th><th>Category</th><th>TIN</th><th>Amount</th><th>Details</th><th>Done By</th><th>Action</th></tr>
             </thead>
             <tbody id="expensesTbody" class="zebra"></tbody>
             <tfoot>
               <tr>
                 <td colspan="4"><strong>Total</strong></td>
                 <td id="expensesTotal" style="font-weight:700;color:var(--green);">₱0.00</td>
-                <td colspan="2"></td>
+                <td colspan="3"></td>
               </tr>
             </tfoot>
           </table>
@@ -543,7 +598,7 @@
         <div class="table-wrapper">
           <table class="table">
             <thead>
-              <tr><th>Staff</th><th>Period</th><th>Days</th><th>Base Pay</th><th>Overtime</th><th>Allowance</th><th>Deductions</th><th>Net Pay</th><th>Actions</th></tr>
+              <tr><th>Staff</th><th>Period</th><th>Days</th><th>Base Pay</th><th>Overtime</th><th>Cash Advance</th><th>Deductions</th><th>Net Pay</th><th>Actions</th></tr>
             </thead>
             <tbody id="payrollTbody" class="zebra"></tbody>
             <tfoot>
@@ -758,7 +813,7 @@
       <div class="form-row"><label for="payrollHours">Hours Worked *</label><input type="number" step="0.25" min="0" id="payrollHours" placeholder="e.g. 160" required /></div>
       <div class="form-row"><label for="payrollBase">Base Pay (₱) — Auto-calculated</label><input type="number" step="0.01" min="0" id="payrollBase" placeholder="0.00" readonly style="background:var(--bg);color:var(--muted);cursor:not-allowed;" /></div>
       <div class="form-row"><label for="payrollOvertime">Overtime Pay (₱)</label><input type="number" step="0.01" min="0" id="payrollOvertime" value="0" /></div>
-      <div class="form-row"><label for="payrollAllowance">Allowance (₱)</label><input type="number" step="0.01" min="0" id="payrollAllowance" value="0" /></div>
+      <div class="form-row"><label for="payrollCashAdvance">Cash Advance (₱) <span style="font-size:11px;color:#6b7280;">— auto-deducted from net pay</span></label><input type="number" step="0.01" min="0" id="payrollCashAdvance" value="0" /></div>
       <div class="form-row"><label for="payrollDeductions">Deductions — SSS / PhilHealth / Pag-IBIG (₱)</label><input type="number" step="0.01" min="0" id="payrollDeductions" value="0" /></div>
       <div class="form-row">
         <label>Net Pay Preview</label>
