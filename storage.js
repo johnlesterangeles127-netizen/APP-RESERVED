@@ -84,7 +84,7 @@
     // Load all tables in parallel — stock_log uses paginated loader to get ALL rows
     await Promise.all([
       _loadTable('inventory',        'created_at', true),
-      _loadTable('sales',            'date',       false),
+      _loadAllSales(),
       _loadTable('expenses',         'date',       false),
       _loadTable('monthly_top_items','month',      false),
       _loadTable('staff',            'name',       true),
@@ -170,6 +170,32 @@
       console.log(`✅ stock_log: loaded ${allRows.length} total rows`);
     } catch(e) {
       console.error('❌ Failed to load stock_log:', e.message || e);
+    }
+  }
+
+  // Paginated sales loader — pages through ALL rows so nothing is ever missing.
+  // No row limit, no assumptions about count. Identical pattern to _loadAllStockLog.
+  async function _loadAllSales() {
+    try {
+      const PAGE = 1000;
+      let allRows = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await db
+          .from('sales')
+          .select('*')
+          .order('date', { ascending: false })
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        const rows = data || [];
+        allRows = allRows.concat(rows);
+        if (rows.length < PAGE) break; // last page reached
+        from += PAGE;
+      }
+      cache.sales = allRows.map(s => _unpackSaleFromDB(s));
+      console.log(`✅ sales: loaded ${allRows.length} total rows`);
+    } catch(e) {
+      console.error('❌ Failed to load sales:', e.message || e);
     }
   }
 
