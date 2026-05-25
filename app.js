@@ -32,7 +32,19 @@
     catch { return DEFAULT_USERS; }
   }
   function saveUsers(u) { localStorage.setItem('r_users', JSON.stringify(u)); }
-  if (!localStorage.getItem('r_users')) saveUsers(DEFAULT_USERS);
+  // Merge DEFAULT_USERS into localStorage so new accounts added to code are always synced in
+  (function syncDefaultUsers() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('r_users') || '[]');
+      const merged = [...saved];
+      DEFAULT_USERS.forEach(def => {
+        if (!merged.find(u => u.username === def.username)) {
+          merged.push(def);
+        }
+      });
+      saveUsers(merged);
+    } catch { saveUsers(DEFAULT_USERS); }
+  })();
   const OWNER_ONLY = ['dashboard', 'expenses', 'staff', 'reports', 'settings'];
 
   // ── HELPERS ────────────────────────────────────────────────────────────────
