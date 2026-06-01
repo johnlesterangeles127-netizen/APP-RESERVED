@@ -48,10 +48,8 @@
   }
 
   function withinDate(dateStr, start, end) {
-    const d = new Date(dateStr);
-    if (start && d < new Date(start)) return false;
-    if (end && d > new Date(end)) return false;
-    return true;
+    const d = dateStr.slice(0, 10);
+    return (!start || d >= start) && (!end || d <= end);
   }
 
   function sumExpenses(expenses, start, end) {
@@ -318,12 +316,28 @@
     return result;
   }
 
+  // Convert payroll records into expense-shaped objects so they can be
+  // merged with the expenses array for totals and chart data.
+  // Each payroll entry has a `period` like "2025-05" (YYYY-MM); we map it to
+  // the first day of that month so date-range filters work correctly.
+  function payrollToExpenses(payroll) {
+    return (payroll || []).map(p => ({
+      id:       p.id,
+      date:     p.period ? p.period + '-01' : (p.created_at || '').slice(0, 10),
+      amount:   Number(p.net_pay) || 0,
+      category: 'Payroll',
+      note:     p.staff_id ? `Staff payroll (${p.period || ''})` : 'Payroll',
+      _isPayroll: true
+    }));
+  }
+
   window.Calc = {
     currency,
     stockValue, totalStockValue,
     lineTotals, saleTotals,
     sumExpenses, sumSalesRevenue, sumSalesCogs, sumSalesGP, netProfit,
     groupByDateTotals, groupByMonthlyTotals, groupByCalendarYear, topSellingItems, topSellingByCategory, topSellingCurrentMonth, topItemsMonthlyTrend,
-    withinDate
+    withinDate,
+    payrollToExpenses
   };
 })();
