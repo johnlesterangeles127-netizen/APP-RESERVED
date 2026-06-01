@@ -65,7 +65,8 @@
   function getMonthRange() {
     const d = new Date();
     const start = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    const end = `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2,'0')}-${String(lastDay.getDate()).padStart(2,'0')}`;
     return { start, end };
   }
 
@@ -319,8 +320,14 @@
     const items     = StorageAPI.getInventory();
     const sales     = StorageAPI.getSales();
     const expenses  = StorageAPI.getExpenses();
+    const payroll   = StorageAPI.getPayroll();
     const s         = StorageAPI.getSettings();
     const threshold = Number(s.lowStockThreshold) || 10;
+
+    // Merge payroll into expenses as normalised expense rows so all
+    // expense totals, KPIs, the filtered strip, and the chart all
+    // treat payroll as an operational cost automatically.
+    const allExpenses = [...expenses, ...Calc.payrollToExpenses(payroll)];
 
     const td      = today();
     const wkStart = getWeekStart();
@@ -338,8 +345,9 @@
     $('#kpiMonthSales').textContent    = cur(sumRevenue(sales, mStart, mEnd));
     $('#kpiYearSales').textContent     = cur(sumRevenue(sales, yStart, yEnd));
 
-    const monthExp = sumExp(expenses, mStart, mEnd);
-    const yearExp  = sumExp(expenses, yStart, yEnd);
+    // Expenses KPIs now include payroll
+    const monthExp = sumExp(allExpenses, mStart, mEnd);
+    const yearExp  = sumExp(allExpenses, yStart, yEnd);
     const monthNP  = sumGP(sales, mStart, mEnd) - monthExp;
     const yearNP   = sumGP(sales, yStart, yEnd) - yearExp;
     $('#kpiMonthExpenses').textContent = cur(monthExp);
@@ -357,7 +365,8 @@
 
     if (fs || fe) {
       const fSales = sales.filter(s => inRange(s.date, fs, fe));
-      const fExp   = expenses.filter(e => inRange(e.date, fs, fe));
+      // Include payroll in filtered expenses for the strip
+      const fExp   = allExpenses.filter(e => inRange(e.date, fs, fe));
 
       const rev = fSales.reduce((sum, s) => sum + saleRevenue(s), 0);
       const gp  = fSales.reduce((sum, s) => sum + saleGP(s), 0);
@@ -379,10 +388,10 @@
       strip.style.display = 'none';
     }
 
-    // Chart — fixed Jan to Dec for selected year
+    // Chart — fixed Jan to Dec for selected year; allExpenses includes payroll
     const chartYear = Number($('#dashChartYear').value) || new Date().getFullYear();
-    const grouped   = Calc.groupByCalendarYear(sales, expenses, chartYear);
-    $('#dashChartLabel').textContent = `Sales vs Expenses — Jan to Dec ${chartYear}`;
+    const grouped   = Calc.groupByCalendarYear(sales, allExpenses, chartYear);
+    $('#dashChartLabel').textContent = `Sales vs Expenses (incl. Payroll) — Jan to Dec ${chartYear}`;
     renderDashChart(grouped);
 
     // Low stock alerts
@@ -2597,7 +2606,10 @@
     if (!ym) return { start: null, end: null };
     const [y, m] = ym.split('-').map(Number);
     const start = `${y}-${String(m).padStart(2,'0')}-01`;
-    const end   = new Date(y, m, 0).toISOString().slice(0, 10);
+    // Use local date parts (getFullYear/getMonth/getDate) instead of toISOString()
+    // to avoid UTC conversion shifting the day in UTC+8 (Philippines) timezone.
+    const lastDay = new Date(y, m, 0);
+    const end = `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2,'0')}-${String(lastDay.getDate()).padStart(2,'0')}`;
     return { start, end };
   }
 
