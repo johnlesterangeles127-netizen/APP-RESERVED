@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>RESERVED — Restaurant Manager</title>
+  <title>RESERVE — Restaurant Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -77,6 +77,7 @@
         <li><button class="nav-link" data-section="expenses">🧾 Expenses</button></li>
         <li><button class="nav-link" data-section="staff">👥 Staff</button></li>
         <li><button class="nav-link" data-section="reports">📈 Reports</button></li>
+        <li><button class="nav-link" data-section="discountlog">🏷️ Discount Log</button></li>
         <li><button class="nav-link" data-section="settings">⚙️ Settings</button></li>
       </ul>
     </nav>
@@ -320,6 +321,10 @@
                     <div class="pos-total-row">
                       <span class="pos-total-label">Subtotal</span>
                       <span class="pos-total-val" id="menuSubtotal">₱0.00</span>
+                    </div>
+                    <div class="pos-total-row" id="menuItemDiscountRow" style="display:none;">
+                      <span class="pos-total-label">Item Discounts</span>
+                      <span class="pos-total-val" style="color:var(--red);" id="menuItemDiscountAmt">−₱0.00</span>
                     </div>
                     <div class="pos-total-row pos-discount-row" id="menuDiscountRow" style="display:none;">
                       <span class="pos-total-label" id="menuDiscountLabel">Discount</span>
@@ -665,6 +670,55 @@
         </div>
       </section>
 
+      <!-- ══ DISCOUNT LOG ══════════════════════════════════════ -->
+      <section id="discountlog" class="section">
+        <div class="section-header">
+          <h2>🏷️ Discount Log</h2>
+          <div class="filters" style="margin:0;gap:8px;">
+            <label>From <input type="date" id="dlStart" style="width:140px;"></label>
+            <label>To <input type="date" id="dlEnd" style="width:140px;"></label>
+            <button id="dlApply" class="btn btn-primary btn-sm">Apply</button>
+            <button id="dlExportCsv" class="btn btn-secondary btn-sm">⬇ Export CSV</button>
+            <button id="dlClearBtn" class="btn btn-danger btn-sm" style="margin-left:auto;">🗑 Clear Log</button>
+          </div>
+        </div>
+        <div class="kpi-grid" style="margin-bottom:16px;">
+          <div class="card kpi kpi-red"><div class="kpi-title">Total Discounts Given</div><div id="dlTotalAmt" class="kpi-value">₱0.00</div></div>
+          <div class="card kpi"><div class="kpi-title">Discount Transactions</div><div id="dlTotalCount" class="kpi-value">0</div></div>
+          <div class="card kpi"><div class="kpi-title">Most Discounted Item</div><div id="dlTopItem" class="kpi-value" style="font-size:14px;">—</div></div>
+          <div class="card kpi kpi-red"><div class="kpi-title">Highest Single Discount</div><div id="dlMaxAmt" class="kpi-value">₱0.00</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+          <div class="card">
+            <div class="card-header">🏆 Most Discounted Items (by ₱ total)</div>
+            <div class="table-wrapper" style="box-shadow:none;border:none;margin:0;max-height:300px;">
+              <table class="table" style="min-width:0;">
+                <thead><tr><th>#</th><th>Item</th><th>Times</th><th>Total ₱ Saved</th><th>Avg per Order</th></tr></thead>
+                <tbody id="dlTopItemsTbody" class="zebra"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">📊 Discount by Type</div>
+            <div class="table-wrapper" style="box-shadow:none;border:none;margin:0;max-height:300px;">
+              <table class="table" style="min-width:0;">
+                <thead><tr><th>Type</th><th>Count</th><th>Total ₱ Saved</th></tr></thead>
+                <tbody id="dlByTypeTbody" class="zebra"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">📋 Full Discount History</div>
+          <div class="table-wrapper" style="box-shadow:none;border:none;margin:0;">
+            <table class="table">
+              <thead><tr><th>Date</th><th>Item</th><th>Qty</th><th>Original Price</th><th>Discount Type</th><th>Discount Value</th><th>₱ Saved</th><th>Done By</th><th>Sale ID</th></tr></thead>
+              <tbody id="dlLogTbody" class="zebra"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <!-- ══ SETTINGS ═══════════════════════════════════════ -->
       <section id="settings" class="section">
         <div class="section-header"><h2>Settings</h2></div>
@@ -715,7 +769,7 @@
   </div>
 
   <footer class="app-footer">
-    &copy; <span id="year"></span> RESERVED &nbsp;·&nbsp; Alt+1–9 keyboard shortcuts
+    &copy; <span id="year"></span> RESERVE &nbsp;·&nbsp; Alt+1–9 keyboard shortcuts
   </footer>
 </div><!-- /appMain -->
 
@@ -840,6 +894,57 @@
 <datalist id="categoryList"></datalist>
 <datalist id="supplierList"></datalist>
 <div id="toastContainer" class="toast-container"></div>
+
+<!-- ══ ANTI-INSPECT ══════════════════════════════════════════ -->
+<script>
+  (function () {
+    // 1. Disable right-click context menu
+    document.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+    });
+
+    // 2. Block DevTools keyboard shortcuts
+    document.addEventListener('keydown', function (e) {
+      const key = e.key;
+      const ctrl = e.ctrlKey || e.metaKey;
+      const shift = e.shiftKey;
+
+      // F12
+      if (key === 'F12') { e.preventDefault(); return false; }
+      // Ctrl+Shift+I (Inspect)
+      if (ctrl && shift && (key === 'I' || key === 'i')) { e.preventDefault(); return false; }
+      // Ctrl+Shift+J (Console)
+      if (ctrl && shift && (key === 'J' || key === 'j')) { e.preventDefault(); return false; }
+      // Ctrl+Shift+C (Element picker)
+      if (ctrl && shift && (key === 'C' || key === 'c')) { e.preventDefault(); return false; }
+      // Ctrl+U (View source)
+      if (ctrl && (key === 'U' || key === 'u')) { e.preventDefault(); return false; }
+      // Ctrl+Shift+K (Firefox Console)
+      if (ctrl && shift && (key === 'K' || key === 'k')) { e.preventDefault(); return false; }
+    });
+
+    // 3. Detect DevTools open via window size change (desktop)
+    var devtoolsOpen = false;
+    var threshold = 160;
+    setInterval(function () {
+      var widthDiff  = window.outerWidth  - window.innerWidth;
+      var heightDiff = window.outerHeight - window.innerHeight;
+      if ((widthDiff > threshold || heightDiff > threshold) && !devtoolsOpen) {
+        devtoolsOpen = true;
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:Inter,sans-serif;font-size:22px;color:#ef4444;background:#0f172a;">⛔ Access Denied</div>';
+      }
+    }, 1000);
+
+    // 4. Detect debugger via timing trick
+    var _start = new Date();
+    debugger;
+    var _end = new Date();
+    if ((_end - _start) > 100) {
+      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:Inter,sans-serif;font-size:22px;color:#ef4444;background:#0f172a;">⛔ Access Denied</div>';
+    }
+  })();
+</script>
+<!-- ══ END ANTI-INSPECT ══════════════════════════════════════ -->
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="supabase.js"></script>
