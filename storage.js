@@ -91,7 +91,8 @@
       _loadTable('staff',            'name',       true),
       _loadTable('payroll',          'period',     false),
       _loadAllStockLog(),
-      _loadTable('menu_products',    'created_at', true)
+      _loadTable('menu_products',    'created_at', true),
+      _loadAllDiscountLog()
     ]);
 
     console.log('✅ RESERVE: All data loaded —',
@@ -485,24 +486,76 @@
   }
 
   // ── DISCOUNT LOG ────────────────────────────────────────────────────────────
-  // Stored in localStorage — no separate Supabase table needed.
-  // Entry shape: { id, sale_id, date, product_id, product_name, discount_type, discount_value, discount_amt, original_price, qty, done_by }
-  const DL_KEY = 'reserve_discount_log';
-  function _readDiscountLog()  { try { return JSON.parse(localStorage.getItem(DL_KEY)) || []; } catch { return []; } }
-  function _writeDiscountLog(log) { try { localStorage.setItem(DL_KEY, JSON.stringify(log)); } catch(e) { console.error(e); } }
+  // Stored in Supabase so logs are synced across all devices/browsers.
+  // Entry shape: { id, sale_id, date, product_id, product_name, discount_type,
+  //               discount_value, discount_amt, original_price, qty, done_by }
+  //
+  // Required Supabase table (run once in your Supabase SQL editor):
+  //
+  //   create table discount_log (
+  //     id            text primary key,
+  //     sale_id       text,
+  //     date          text,
+  //     product_id    text,
+  //     product_name  text,
+  //     discount_type text,
+  //     discount_value numeric,
+  //     discount_amt   numeric,
+  //     original_price numeric,
+  //     qty            numeric,
+  //     done_by        text,
+  //     created_at     timestamptz default now()
+  //   );
+  //
+  // To migrate existing localStorage data, open the browser console on your
+  // LOCAL machine and run:
+  //
+  //   const old = JSON.parse(localStorage.getItem('reserve_discount_log') || '[]');
+  //   if (old.length) { StorageAPI.addDiscountLogEntries(old); console.log('Migrated', old.length, 'entries'); }
+
+  async function _loadAllDiscountLog() {
+    try {
+      const PAGE = 1000;
+      let allRows = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await db
+          .from('discount_log')
+          .select('*')
+          .order('date', { ascending: false })
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        const rows = data || [];
+        allRows = allRows.concat(rows);
+        if (rows.length < PAGE) break;
+        from += PAGE;
+      }
+      cache.discountLog = allRows;
+      console.log(`✅ discount_log: loaded ${allRows.length} total rows`);
+    } catch(e) {
+      console.error('❌ Failed to load discount_log:', e.message || e);
+      console.warn('Hint: Make sure the "discount_log" table exists in Supabase and RLS allows SELECT.');
+    }
+  }
+
   function getDiscountLog() {
-    if (!cache.discountLog.length) cache.discountLog = _readDiscountLog();
     return cache.discountLog;
   }
+
   function addDiscountLogEntries(entries) {
-    const log = _readDiscountLog();
-    log.unshift(...entries);
-    _writeDiscountLog(log);
-    cache.discountLog = log;
+    // Optimistic cache update so UI reflects immediately
+    cache.discountLog.unshift(...entries);
+    // Persist to Supabase
+    entries.forEach(entry => {
+      _save(`insert discount_log [${entry.id}]`,
+        db.from('discount_log').upsert(entry, { onConflict: 'id' })
+      );
+    });
   }
+
   function clearDiscountLog() {
     cache.discountLog = [];
-    _writeDiscountLog([]);
+    _save('clear discount_log', db.from('discount_log').delete().neq('id', ''));
   }
 
   // ── EXPOSE ─────────────────────────────────────────────────────────────────
