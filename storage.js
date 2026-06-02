@@ -13,7 +13,8 @@
     staff:           [],
     payroll:         [],
     stockLog:        [],
-    menuProducts:    []
+    menuProducts:    [],
+    discountLog:     []
   };
 
   // ── SETTINGS (localStorage) ────────────────────────────────────────────────
@@ -483,6 +484,27 @@
     _save(`delete menu_products [${name}]`, db.from('menu_products').delete().eq('id', id));
   }
 
+  // ── DISCOUNT LOG ────────────────────────────────────────────────────────────
+  // Stored in localStorage — no separate Supabase table needed.
+  // Entry shape: { id, sale_id, date, product_id, product_name, discount_type, discount_value, discount_amt, original_price, qty, done_by }
+  const DL_KEY = 'reserve_discount_log';
+  function _readDiscountLog()  { try { return JSON.parse(localStorage.getItem(DL_KEY)) || []; } catch { return []; } }
+  function _writeDiscountLog(log) { try { localStorage.setItem(DL_KEY, JSON.stringify(log)); } catch(e) { console.error(e); } }
+  function getDiscountLog() {
+    if (!cache.discountLog.length) cache.discountLog = _readDiscountLog();
+    return cache.discountLog;
+  }
+  function addDiscountLogEntries(entries) {
+    const log = _readDiscountLog();
+    log.unshift(...entries);
+    _writeDiscountLog(log);
+    cache.discountLog = log;
+  }
+  function clearDiscountLog() {
+    cache.discountLog = [];
+    _writeDiscountLog([]);
+  }
+
   // ── EXPOSE ─────────────────────────────────────────────────────────────────
   window.StorageAPI = {
     ensureDefaults, uid,
@@ -498,6 +520,7 @@
     toCSV, downloadCSV, parseCSV,
     getMonthlyTopItems, saveMonthlyTopItems, saveMonthlyTopRecord,
     getMonthlyRecord, getCurrentMonthKey,
-    getMenuProducts, getMenuProductById, upsertMenuProduct, deleteMenuProduct
+    getMenuProducts, getMenuProductById, upsertMenuProduct, deleteMenuProduct,
+    getDiscountLog, addDiscountLogEntries, clearDiscountLog
   };
 })();
