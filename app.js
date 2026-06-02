@@ -251,9 +251,10 @@
           state.inventoryType = btn.dataset.type;
           renderInventory();
         }
-        if (sec === 'menu')    renderMenu();
-        if (sec === 'reports') renderReports();
-        if (sec === 'staff') renderStaff();
+        if (sec === 'menu')        renderMenu();
+        if (sec === 'reports')     renderReports();
+        if (sec === 'staff')       renderStaff();
+        if (sec === 'discountlog') renderDiscountLog();
       });
     });
   }
@@ -1175,17 +1176,49 @@
   function discountBadge(sale) {
     const type  = sale.discount_type;
     const amt   = Number(sale.discount_amt) || 0;
-    if (!type || type === 'none' || amt === 0) return `<span style="color:var(--muted);font-size:11px;">—</span>`;
-    let label = '';
-    if      (type === 'senior')  label = 'Senior/PWD';
-    else if (type === 'percent') label = `${sale.discount_pct || ''}% Off`.trim();
-    else if (type === 'fixed')   label = 'Fixed';
-    else if (type === 'other')   label = sale.discount_label || 'Custom';
-    else                         label = type;
-    return `<span style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;">
-      <span style="background:#FFF3E0;color:#E65100;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:700;white-space:nowrap;">${label}</span>
-      <span style="font-size:11px;color:#c00;font-weight:600;">−${cur(amt)}</span>
-    </span>`;
+
+    // Per-item discounts from lines
+    const itemDiscLines = (sale.lines || []).filter(l => l.item_discount && l.item_discount.type && l.item_discount.type !== 'none');
+    const itemDiscTotal = itemDiscLines.reduce((s, l) =>
+      s + Calc.lineDiscount({ qty: l.qty, sell_price: l.sell_price || l.price || 0, item_discount: l.item_discount }), 0);
+
+    const hasOrderDisc = type && type !== 'none' && amt > 0;
+    const hasItemDisc  = itemDiscTotal > 0;
+
+    if (!hasOrderDisc && !hasItemDisc) return `<span style="color:var(--muted);font-size:11px;">—</span>`;
+
+    let html = `<span style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:3px;">`;
+
+    // Per-item discounts — one row per discounted line
+    if (hasItemDisc) {
+      itemDiscLines.forEach(l => {
+        const d = l.item_discount;
+        const discAmt = Calc.lineDiscount({ qty: l.qty, sell_price: l.sell_price || l.price || 0, item_discount: d });
+        const discType = d.type === 'senior' ? '20% Senior/PWD' : d.type === 'percent' ? `${d.value}% off` : d.type === 'fixed' ? `Fixed ₱${Number(d.value).toFixed(2)}` : d.type;
+        html += `<span style="font-size:11px;white-space:nowrap;">
+          <span style="background:#E8F5E9;color:#2E7D32;border-radius:4px;padding:1px 5px;font-weight:700;">${l.item_name}</span>
+          <span style="color:#c00;font-weight:600;"> −${cur(discAmt)}</span>
+          <span style="color:var(--muted);"> ${discType}</span>
+        </span>`;
+      });
+    }
+
+    // Order-level discount — existing logic unchanged
+    if (hasOrderDisc) {
+      let label = '';
+      if      (type === 'senior')  label = 'Senior/PWD';
+      else if (type === 'percent') label = `${sale.discount_pct || ''}% Off`.trim();
+      else if (type === 'fixed')   label = 'Fixed';
+      else if (type === 'other')   label = sale.discount_label || 'Custom';
+      else                         label = type;
+      html += `<span style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;">
+        <span style="background:#FFF3E0;color:#E65100;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:700;white-space:nowrap;">${label}</span>
+        <span style="font-size:11px;color:#c00;font-weight:600;">−${cur(amt)}</span>
+      </span>`;
+    }
+
+    html += `</span>`;
+    return html;
   }
 
   function renderSalesHistory() {
@@ -1947,6 +1980,136 @@
     toast('Report exported ✓');
   }
 
+  // ── DISCOUNT LOG ────────────────────────────────────────────────────────────
+  let _dlReady = false;
+  function setupDiscountLog() {
+    const now = new Date();
+    const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+    const dlStart = $('#dlStart');
+    const dlEnd   = $('#dlEnd');
+    if (dlStart && !dlStart.value) dlStart.value = firstOfMonth;
+    if (dlEnd   && !dlEnd.value)   dlEnd.value   = now.toISOString().slice(0,10);
+    if (_dlReady) return;
+    _dlReady = true;
+    $('#dlApply').addEventListener('click', renderDiscountLog);
+    $('#dlExportCsv').addEventListener('click', exportDiscountLogCsv);
+    $('#dlClearBtn').addEventListener('click', () => {
+      if (!confirm('Clear ALL discount log entries? This cannot be undone.')) return;
+      StorageAPI.clearDiscountLog();
+      renderDiscountLog();
+      toast('Discount log cleared');
+    });
+  }
+
+  function renderDiscountLog() {
+    setupDiscountLog();
+    const log    = StorageAPI.getDiscountLog();
+    const start  = $('#dlStart') ? $('#dlStart').value || null : null;
+    const end    = $('#dlEnd')   ? $('#dlEnd').value   || null : null;
+    const filtered = log.filter(e => inRange(e.date, start, end));
+
+    // KPIs
+    const totalAmt = filtered.reduce((s, e) => s + (Number(e.discount_amt) || 0), 0);
+    const maxEntry = filtered.reduce((mx, e) => (Number(e.discount_amt)||0) > (Number(mx?.discount_amt)||0) ? e : mx, null);
+
+    const elTotalAmt   = $('#dlTotalAmt');
+    const elTotalCount = $('#dlTotalCount');
+    const elTopItem    = $('#dlTopItem');
+    const elMaxAmt     = $('#dlMaxAmt');
+    if (elTotalAmt)   elTotalAmt.textContent   = cur(totalAmt);
+    if (elTotalCount) elTotalCount.textContent = filtered.length;
+    if (elMaxAmt)     elMaxAmt.textContent     = maxEntry ? cur(maxEntry.discount_amt) : cur(0);
+
+    // Top items by total discount ₱
+    const byItem = new Map();
+    filtered.forEach(e => {
+      const key   = e.product_id || e.product_name;
+      const entry = byItem.get(key) || { name: e.product_name || key, count: 0, total: 0 };
+      entry.count += 1;
+      entry.total += Number(e.discount_amt) || 0;
+      byItem.set(key, entry);
+    });
+    const topItems = Array.from(byItem.values()).sort((a, b) => b.total - a.total);
+    if (elTopItem) elTopItem.textContent = topItems.length ? topItems[0].name : '—';
+
+    const dlTopItemsTbody = $('#dlTopItemsTbody');
+    if (dlTopItemsTbody) {
+      dlTopItemsTbody.innerHTML = topItems.length
+        ? topItems.slice(0,10).map((t,i) => `<tr>
+            <td><strong>#${i+1}</strong></td>
+            <td>${t.name}</td>
+            <td>${t.count}</td>
+            <td style="color:var(--red);font-weight:600;">${cur(t.total)}</td>
+            <td>${cur(t.count ? t.total/t.count : 0)}</td>
+          </tr>`).join('')
+        : '<tr><td colspan="5" class="no-data-placeholder">No discounts recorded in this period</td></tr>';
+    }
+
+    // By type breakdown
+    const typeLabels = { percent: 'Percentage (%)', fixed: 'Fixed Amount (₱)', senior: 'Senior / PWD (20%)' };
+    const byType = {};
+    filtered.forEach(e => {
+      const t = e.discount_type || 'unknown';
+      if (!byType[t]) byType[t] = { count: 0, total: 0 };
+      byType[t].count++;
+      byType[t].total += Number(e.discount_amt) || 0;
+    });
+    const dlByTypeTbody = $('#dlByTypeTbody');
+    if (dlByTypeTbody) {
+      dlByTypeTbody.innerHTML = Object.keys(byType).length
+        ? Object.entries(byType).sort((a,b) => b[1].total - a[1].total).map(([type, v]) => `<tr>
+            <td>${typeLabels[type] || type}</td>
+            <td>${v.count}</td>
+            <td style="color:var(--red);">${cur(v.total)}</td>
+          </tr>`).join('')
+        : '<tr><td colspan="3" class="no-data-placeholder">No data</td></tr>';
+    }
+
+    // Full log table
+    const dlLogTbody = $('#dlLogTbody');
+    if (dlLogTbody) {
+      dlLogTbody.innerHTML = filtered.length
+        ? filtered.map(e => {
+            const discLabel = e.discount_type === 'percent'  ? `${e.discount_value}%`
+                            : e.discount_type === 'senior'   ? '20% Senior/PWD'
+                            : e.discount_type === 'fixed'    ? `₱${Number(e.discount_value).toFixed(2)} fixed`
+                            : e.discount_type || '—';
+            return `<tr>
+              <td>${e.date ? e.date.slice(0,16).replace('T',' ') : '—'}</td>
+              <td><strong>${e.product_name || '—'}</strong></td>
+              <td>${e.qty}</td>
+              <td>${cur(e.original_price)}</td>
+              <td>${typeLabels[e.discount_type] || e.discount_type || '—'}</td>
+              <td>${discLabel}</td>
+              <td style="color:var(--red);font-weight:600;">−${cur(e.discount_amt)}</td>
+              <td>${e.done_by || '—'}</td>
+              <td style="font-size:10px;color:var(--muted);">${e.sale_id || '—'}</td>
+            </tr>`;
+          }).join('')
+        : '<tr><td colspan="9" class="no-data-placeholder">No discount entries in this period</td></tr>';
+    }
+  }
+
+  function exportDiscountLogCsv() {
+    const log   = StorageAPI.getDiscountLog();
+    const start = $('#dlStart') ? $('#dlStart').value || null : null;
+    const end   = $('#dlEnd')   ? $('#dlEnd').value   || null : null;
+    const rows  = log.filter(e => inRange(e.date, start, end)).map(e => ({
+      date:           e.date ? e.date.slice(0,16).replace('T',' ') : '',
+      product_name:   e.product_name || '',
+      qty:            e.qty,
+      original_price: e.original_price,
+      discount_type:  e.discount_type,
+      discount_value: e.discount_value,
+      discount_amt:   e.discount_amt,
+      done_by:        e.done_by || '',
+      sale_id:        e.sale_id || ''
+    }));
+    if (!rows.length) { toast('No data to export', 'error'); return; }
+    StorageAPI.downloadCSV('discount_log.csv', rows);
+    toast('Discount log exported ✓');
+  }
+
   // ── MENU ───────────────────────────────────────────────────────────────────
   const menuOrder = [];
 
@@ -2024,7 +2187,7 @@
         if (!product) return;
         const existing = menuOrder.find(o => o.product_id === id);
         if (existing) { existing.qty++; }
-        else { menuOrder.push({ product_id: id, name: product.name, category: product.category, qty: 1, price: Number(product.price) || 0 }); }
+        else { menuOrder.push({ product_id: id, name: product.name, category: product.category, qty: 1, price: Number(product.price) || 0, item_discount: { type: 'none', value: 0 } }); }
         card.classList.add('menu-item-added');
         setTimeout(() => card.classList.remove('menu-item-added'), 350);
         refreshMenuBadges();
@@ -2039,10 +2202,40 @@
         if      (btn.classList.contains('ol-minus'))  { menuOrder[i].qty--; if (menuOrder[i].qty <= 0) menuOrder.splice(i, 1); }
         else if (btn.classList.contains('ol-plus'))   { menuOrder[i].qty++; }
         else if (btn.classList.contains('ol-remove')) { menuOrder.splice(i, 1); }
+        else if (btn.classList.contains('ol-disc')) {
+          // Toggle per-item discount panel
+          const panel = $('#ol-disc-panel-' + i);
+          if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+          return; // don't re-render yet
+        }
+        else if (btn.classList.contains('ol-disc-apply')) {
+          const orderLines = $('#menuOrderLines');
+          const typeEl = orderLines.querySelector(`.ol-disc-type[data-idx="${i}"]`);
+          const valEl  = orderLines.querySelector(`.ol-disc-val[data-idx="${i}"]`);
+          const type   = typeEl ? typeEl.value : 'none';
+          const value  = valEl  ? Number(valEl.value) || 0 : 0;
+          if (type !== 'none' && type !== 'senior' && value <= 0) {
+            toast('Enter a discount value greater than 0', 'error');
+            return;
+          }
+          menuOrder[i].item_discount = { type, value };
+          // panel will close on re-render
+        }
+        else if (btn.classList.contains('ol-disc-clear')) {
+          menuOrder[i].item_discount = { type: 'none', value: 0 };
+        }
         renderOrderPad(); refreshMenuBadges();
       });
 
       $('#menuSearch').addEventListener('input',    renderMenuBoard);
+      // Per-item discount type → show/hide value input
+      $('#menuOrderLines').addEventListener('change', e => {
+        const sel = e.target.closest('.ol-disc-type');
+        if (!sel) return;
+        const i = Number(sel.dataset.idx);
+        const valEl = $('#menuOrderLines').querySelector(`.ol-disc-val[data-idx="${i}"]`);
+        if (valEl) valEl.style.display = (sel.value === 'none' || sel.value === 'senior') ? 'none' : 'block';
+      });
       $('#menuFilterCat').addEventListener('change', renderMenuBoard);
       $('#menuDiscountType').addEventListener('change', () => { updateOrderTotalsUI(); });
       $('#menuDiscountValue').addEventListener('input',  () => { updateOrderTotalsUI(); });
@@ -2201,15 +2394,39 @@
       const id    = card.dataset.id;
       let badge   = card.querySelector('.menu-in-order-badge');
       const order = menuOrder.find(o => o.product_id === id);
+      const priceEl = card.querySelector('.menu-item-price');
       if (order) {
         if (!badge) { badge = document.createElement('div'); badge.className = 'menu-in-order-badge'; card.insertBefore(badge, card.firstChild); }
         badge.textContent = `×${order.qty}`;
-      } else { if (badge) badge.remove(); }
+        // Reflect per-item discount on the card price
+        if (priceEl) {
+          const d = order.item_discount || { type: 'none', value: 0 };
+          const discAmt = Calc.lineDiscount({ qty: 1, sell_price: order.price, item_discount: d });
+          const hasDisc = d.type && d.type !== 'none' && discAmt > 0;
+          const effectivePrice = order.price - discAmt;
+          if (hasDisc) {
+            priceEl.innerHTML = `<span style="text-decoration:line-through;color:var(--muted);font-size:11px;">${cur(order.price)}</span>&nbsp;<span style="color:var(--red);font-weight:700;">${cur(effectivePrice)}</span>`;
+          } else {
+            priceEl.textContent = cur(order.price);
+          }
+        }
+      } else {
+        if (badge) badge.remove();
+        // Restore original price
+        const product = StorageAPI.getMenuProductById(id);
+        if (priceEl && product) priceEl.textContent = cur(product.price);
+      }
     });
   }
 
   function calcOrderTotals() {
     const subtotal = menuOrder.reduce((s, o) => s + o.qty * o.price, 0);
+    // Per-item discounts
+    const itemDiscountTotal = menuOrder.reduce((s, o) => {
+      return s + Calc.lineDiscount({ qty: o.qty, sell_price: o.price, item_discount: o.item_discount || { type: 'none', value: 0 } });
+    }, 0);
+    const afterItemDiscounts = subtotal - itemDiscountTotal;
+
     const discType  = $('#menuDiscountType')?.value || 'none';
     const discVal   = Number($('#menuDiscountValue')?.value) || 0;
     const useVat    = $('#menuIncludeVat')?.checked || false;
@@ -2218,12 +2435,12 @@
     const customLabel = ($('#menuDiscountCustomLabel')?.value || '').trim();
 
     let discount = 0;
-    if (discType === 'percent') discount = subtotal * Math.min(discVal, 100) / 100;
-    else if (discType === 'fixed')  discount = Math.min(discVal, subtotal);
-    else if (discType === 'senior') discount = subtotal * 0.20;
-    else if (discType === 'other')  discount = Math.min(discVal, subtotal);
+    if (discType === 'percent') discount = afterItemDiscounts * Math.min(discVal, 100) / 100;
+    else if (discType === 'fixed')  discount = Math.min(discVal, afterItemDiscounts);
+    else if (discType === 'senior') discount = afterItemDiscounts * 0.20;
+    else if (discType === 'other')  discount = Math.min(discVal, afterItemDiscounts);
 
-    const afterDiscount = subtotal - discount;
+    const afterDiscount = afterItemDiscounts - discount;
 
     let serviceCharge = 0;
     if (svcType === 'percent') serviceCharge = afterDiscount * Math.min(svcVal, 100) / 100;
@@ -2232,7 +2449,7 @@
     const afterService = afterDiscount + serviceCharge;
     const vat = useVat ? afterService * 0.12 : 0;
     const total = afterService + vat;
-    return { subtotal, discount, vat, total, useVat, serviceCharge, customLabel, discType };
+    return { subtotal, itemDiscountTotal, discount, vat, total, useVat, serviceCharge, customLabel, discType };
   }
 
   function renderOrderPad() {
@@ -2248,17 +2465,38 @@
       return;
     }
     pad.innerHTML = menuOrder.map((line, i) => {
-      const lt = line.qty * line.price;
-      return `<div class="order-line">
+      const d = line.item_discount || { type: 'none', value: 0 };
+      const discAmt = Calc.lineDiscount({ qty: line.qty, sell_price: line.price, item_discount: d });
+      const lt = line.qty * line.price - discAmt;
+      const hasDisc = d.type && d.type !== 'none';
+      const discLabel = hasDisc
+        ? (d.type === 'senior' ? '20% Senior/PWD' : d.type === 'percent' ? `${d.value}% off` : d.type === 'fixed' ? `−₱${Number(d.value).toFixed(2)}` : '')
+        : '';
+      return `<div class="order-line" data-idx="${i}">
         <div class="order-line-name">${line.name}</div>
-        <div style="font-size:11px;color:var(--muted);">${cur(line.price)} × ${line.qty}</div>
+        <div style="font-size:11px;color:var(--muted);">${cur(line.price)} × ${line.qty}${hasDisc ? ` <span style="color:var(--red);font-size:10px;">[${discLabel}]</span>` : ''}</div>
         <div class="order-line-controls">
           <button class="ol-minus btn btn-ghost btn-sm btn-icon" data-idx="${i}">−</button>
           <span class="ol-qty">${line.qty}</span>
           <button class="ol-plus btn btn-ghost btn-sm btn-icon" data-idx="${i}">+</button>
         </div>
         <div class="order-line-price">${cur(lt)}</div>
+        <button class="ol-disc btn btn-ghost btn-sm btn-icon${hasDisc ? ' ol-disc-active' : ''}" data-idx="${i}" title="Item discount">🏷️</button>
         <button class="ol-remove btn btn-ghost btn-sm btn-icon" data-idx="${i}" title="Remove">✕</button>
+        <div class="ol-disc-panel" id="ol-disc-panel-${i}" style="display:none;">
+          <select class="ol-disc-type" data-idx="${i}">
+            <option value="none"${d.type==='none'?' selected':''}>No Discount</option>
+            <option value="percent"${d.type==='percent'?' selected':''}>Percentage (%)</option>
+            <option value="fixed"${d.type==='fixed'?' selected':''}>Fixed Amount (₱)</option>
+            <option value="senior"${d.type==='senior'?' selected':''}>Senior / PWD (20%)</option>
+          </select>
+          <input class="ol-disc-val" data-idx="${i}" type="number" min="0" step="0.01"
+            placeholder="${d.type==='percent'?'e.g. 10':'e.g. 50'}"
+            value="${d.type !== 'none' && d.type !== 'senior' ? d.value : ''}"
+            style="display:${d.type === 'none' || d.type === 'senior' ? 'none' : 'block'};" />
+          <button class="ol-disc-apply btn btn-primary btn-sm" data-idx="${i}">Apply</button>
+          <button class="ol-disc-clear btn btn-ghost btn-sm" data-idx="${i}">Clear</button>
+        </div>
       </div>`;
     }).join('');
     const totalItems = menuOrder.reduce((s, o) => s + o.qty, 0);
@@ -2267,7 +2505,7 @@
   }
 
   function updateOrderTotalsUI() {
-    const { subtotal, discount, vat, total, useVat, serviceCharge, customLabel, discType } = calcOrderTotals();
+    const { subtotal, itemDiscountTotal, discount, vat, total, useVat, serviceCharge, customLabel, discType } = calcOrderTotals();
     const svcType = $('#menuServiceChargeType')?.value || 'none';
 
     $('#menuSubtotal').textContent         = cur(subtotal);
@@ -2275,6 +2513,14 @@
     $('#menuServiceChargeAmt').textContent = cur(serviceCharge);
     $('#menuVatAmt').textContent           = cur(vat);
     $('#menuTotal').textContent            = cur(total);
+
+    // Show/hide per-item discount row
+    const itemDiscRow = $('#menuItemDiscountRow');
+    if (itemDiscRow) {
+      itemDiscRow.style.display = itemDiscountTotal > 0 ? 'flex' : 'none';
+      const itemDiscAmt = $('#menuItemDiscountAmt');
+      if (itemDiscAmt) itemDiscAmt.textContent = `−${cur(itemDiscountTotal)}`;
+    }
 
     // Dynamic discount label
     const discLabelEl = $('#menuDiscountLabel');
@@ -2344,8 +2590,8 @@
     const saleDate    = saleDateRaw
       ? new Date(saleDateRaw + 'T' + new Date().toTimeString().slice(0, 8)).toISOString()
       : new Date().toISOString();
-    const saleLines = menuOrder.map(o => ({ item_id: o.product_id, item_name: o.name, qty: o.qty, sell_price: o.price, cost_price: 0 }));
-    const { subtotal, discount, vat, total, serviceCharge, customLabel, discType } = calcOrderTotals();
+    const saleLines = menuOrder.map(o => ({ item_id: o.product_id, item_name: o.name, qty: o.qty, sell_price: o.price, cost_price: 0, item_discount: o.item_discount || { type: 'none', value: 0 } }));
+    const { subtotal, itemDiscountTotal, discount, vat, total, serviceCharge, customLabel, discType } = calcOrderTotals();
     const useVat    = $('#menuIncludeVat')?.checked || false;
     const orderType = $('#menuOrderType')?.value || 'Walk-in';
     const svcType   = $('#menuServiceChargeType')?.value || 'none';
@@ -2367,6 +2613,27 @@
       gp:                   total - baseTotals.cogs
     };
     StorageAPI.addSale(sale);
+
+    // Log per-item discounts for analytics
+    const discountEntries = saleLines
+      .filter(l => l.item_discount && l.item_discount.type && l.item_discount.type !== 'none')
+      .map(l => {
+        const discAmt = Calc.lineDiscount({ qty: l.qty, sell_price: l.sell_price, item_discount: l.item_discount });
+        return {
+          id:             StorageAPI.uid('dl'),
+          sale_id:        sale.id,
+          date:           sale.date,
+          product_id:     l.item_id,
+          product_name:   l.item_name,
+          discount_type:  l.item_discount.type,
+          discount_value: l.item_discount.value,
+          discount_amt:   discAmt,
+          original_price: l.sell_price,
+          qty:            l.qty,
+          done_by:        sale.done_by || StorageAPI.getSessionUser()
+        };
+      });
+    if (discountEntries.length) StorageAPI.addDiscountLogEntries(discountEntries);
 
     // Inject into sales history table instantly
     injectSaleRow(sale);
@@ -2418,7 +2685,7 @@
     if (!menuOrder.length) { toast('Add products before printing', 'error'); return; }
     const tableNote = $('#menuOrderNote').value.trim();
     const orderType = $('#menuOrderType')?.value || 'Walk-in';
-    const { subtotal, discount, vat, total, useVat, serviceCharge, customLabel, discType } = calcOrderTotals();
+    const { subtotal, itemDiscountTotal, discount, vat, total, useVat, serviceCharge, customLabel, discType } = calcOrderTotals();
     const svcType   = $('#menuServiceChargeType')?.value || 'none';
     const now       = new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
     const win       = window.open('', '_blank', 'width=380,height=640');
@@ -2430,8 +2697,12 @@
     else if (discType === 'percent') discReceiptLabel = `Discount (${$('#menuDiscountValue')?.value || 0}%)`;
     else if (discType === 'other' && customLabel) discReceiptLabel = customLabel;
 
+    const itemDiscountReceiptRow = itemDiscountTotal > 0
+      ? `<tr><td>Item Discounts</td><td class="r" style="color:#c00;">&#8722;${cur(itemDiscountTotal)}</td></tr>`
+      : '';
+
     const discountRow = discount > 0
-      ? `<tr><td>${discReceiptLabel}</td><td class="r" style="color:#c00;">−${cur(discount)}</td></tr>`
+      ? `<tr><td>${discReceiptLabel}</td><td class="r" style="color:#c00;">&#8722;${cur(discount)}</td></tr>`
       : '';
     const serviceChargeRow = serviceCharge > 0
       ? `<tr><td>Service Charge</td><td class="r">${cur(serviceCharge)}</td></tr>`
@@ -2449,28 +2720,34 @@
       table{width:100%;border-collapse:collapse;}
       td{padding:4px 0;vertical-align:top;font-size:12px;}
       td.r{text-align:right;white-space:nowrap;padding-left:8px;}
-      .item-name{font-weight:600;font-size:13px;} .item-sub{font-size:10px;color:#666;}
+      .item-name{font-weight:600;font-size:13px;} .item-sub{font-size:10px;color:#666;} .item-disc{font-size:10px;color:#c00;}
       hr{border:none;border-top:1px dashed #aaa;margin:10px 0;}
       .total-label{font-weight:700;font-size:15px;} .total-amt{font-weight:700;font-size:15px;text-align:right;}
       .footer{text-align:center;color:#999;font-size:10px;margin-top:16px;line-height:2;}
       @media print{body{padding:4px;}}
     </style></head><body>
-    <h1>🍽️ RESERVE</h1><div class="tagline">Restaurant Manager</div>
+    <h1>&#127869;&#65039; RESERVE</h1><div class="tagline">Restaurant Manager</div>
     <div class="meta">${now}<br>${orderType}${tableNote ? `<br><strong>${tableNote}</strong>` : ''}</div>
     <hr>
-    <table>${menuOrder.map(o => `
-      <tr><td><div class="item-name">${o.name}</div><div class="item-sub">${o.qty} × ${cur(o.price)}</div></td><td class="r">${cur(o.qty * o.price)}</td></tr>`).join('')}
+    <table>${menuOrder.map(o => {
+      const d = o.item_discount || { type: 'none', value: 0 };
+      const ld = Calc.lineDiscount({ qty: o.qty, sell_price: o.price, item_discount: d });
+      const lt = o.qty * o.price - ld;
+      const dtag = ld > 0 ? `<div class="item-disc">${d.type === 'senior' ? 'Senior/PWD' : d.type === 'percent' ? d.value + '% off' : 'disc'} &#8722;${cur(ld)}</div>` : '';
+      return `<tr><td><div class="item-name">${o.name}</div><div class="item-sub">${o.qty} &#xd7; ${cur(o.price)}</div>${dtag}</td><td class="r">${cur(lt)}</td></tr>`;
+    }).join('')}
     </table>
     <hr>
     <table>
       <tr><td>Subtotal</td><td class="r">${cur(subtotal)}</td></tr>
+      ${itemDiscountReceiptRow}
       ${discountRow}
       ${serviceChargeRow}
       ${vatRow}
     </table>
     <hr>
     <table><tr><td class="total-label">TOTAL</td><td class="total-amt">${cur(total)}</td></tr></table>
-    <div class="footer">Thank you for dining with us!<br>Please come again 😊</div>
+    <div class="footer">Thank you for dining with us!<br>Please come again &#128522;</div>
     <script>window.onload = () => { window.print(); };<\/script>
     </body></html>`);
     win.document.close();
