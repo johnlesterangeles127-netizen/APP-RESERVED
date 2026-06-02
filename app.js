@@ -2075,16 +2075,17 @@
     const end    = $('#dlEnd')   ? $('#dlEnd').value   || null : null;
     const filtered = log.filter(e => inRange(e.date, start, end));
 
-    // KPIs
-    const totalAmt = filtered.reduce((s, e) => s + (Number(e.discount_amt) || 0), 0);
-    const maxEntry = filtered.reduce((mx, e) => (Number(e.discount_amt)||0) > (Number(mx?.discount_amt)||0) ? e : mx, null);
+    // KPIs — exclude order-level entries so counts reflect actual item discounts
+    const filteredItemsOnly = filtered.filter(e => e.product_name !== '(Order-level discount)' && e.product_id !== null);
+    const totalAmt = filteredItemsOnly.reduce((s, e) => s + (Number(e.discount_amt) || 0), 0);
+    const maxEntry = filteredItemsOnly.reduce((mx, e) => (Number(e.discount_amt)||0) > (Number(mx?.discount_amt)||0) ? e : mx, null);
 
     const elTotalAmt   = $('#dlTotalAmt');
     const elTotalCount = $('#dlTotalCount');
     const elTopItem    = $('#dlTopItem');
     const elMaxAmt     = $('#dlMaxAmt');
     if (elTotalAmt)   elTotalAmt.textContent   = cur(totalAmt);
-    if (elTotalCount) elTotalCount.textContent = filtered.length;
+    if (elTotalCount) elTotalCount.textContent = filteredItemsOnly.length;
     if (elMaxAmt)     elMaxAmt.textContent     = maxEntry ? cur(maxEntry.discount_amt) : cur(0);
 
     // Top items by total discount ₱
@@ -2152,11 +2153,12 @@
         : '<tr><td colspan="3" class="no-data-placeholder">No data</td></tr>';
     }
 
-    // Full log table
+    // Full log table — exclude order-level discount entries
     const dlLogTbody = $('#dlLogTbody');
     if (dlLogTbody) {
-      dlLogTbody.innerHTML = filtered.length
-        ? filtered.map(e => {
+      const filteredItems = filtered.filter(e => e.product_name !== '(Order-level discount)' && e.product_id !== null);
+      dlLogTbody.innerHTML = filteredItems.length
+        ? filteredItems.map(e => {
             const discLabel = e.discount_type === 'percent'  ? `${e.discount_value}%`
                             : e.discount_type === 'senior'   ? '20% Senior/PWD'
                             : e.discount_type === 'fixed'    ? `₱${Number(e.discount_value).toFixed(2)} fixed`
