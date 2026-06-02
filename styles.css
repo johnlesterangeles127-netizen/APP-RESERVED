@@ -521,7 +521,7 @@ legend { font-size: 13px; font-weight: 700; color: var(--text); padding: 0 6px; 
 }
 .menu-board-col {
   min-width: 0;
-  max-height: calc(100vh - 20px);
+  max-height: calc(100vh - 50px);
   overflow-y: auto;
   padding-right: 8px;
 }
@@ -531,7 +531,7 @@ legend { font-size: 13px; font-weight: 700; color: var(--text); padding: 0 6px; 
 .menu-board-col::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 .menu-order-col { min-width: 0; }
 
-/* ── Order panel card ── */
+/* ── Order panel card ── *
 .menu-order-card {
   border-radius: var(--radius-lg) !important;
   padding: 0 !important;
@@ -735,17 +735,52 @@ legend { font-size: 13px; font-weight: 700; color: var(--text); padding: 0 6px; 
 /* Order pad lines */
 .order-line {
   display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  grid-template-columns: 1fr auto auto auto auto;
   gap: 8px; align-items: center;
   padding: 10px 0;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
+  flex-wrap: wrap;
 }
 .order-line:last-child { border-bottom: none; }
 .order-line-name { font-weight: 600; word-break: break-word; white-space: normal; font-size: 14px; }
 .order-line-controls { display: flex; align-items: center; gap: 4px; }
 .ol-qty { min-width: 26px; text-align: center; font-weight: 700; font-size: 15px; }
 .order-line-price { font-weight: 700; color: var(--green); white-space: nowrap; font-size: 14px; min-width: 68px; text-align: right; }
+
+/* Per-item discount button */
+.ol-disc { opacity: 0.45; font-size: 13px; }
+.ol-disc:hover { opacity: 1; }
+.ol-disc-active { opacity: 1; background: var(--accent-light, #e8f5e9) !important; }
+
+/* Per-item discount panel (full-width sub-row) */
+.ol-disc-panel {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  background: var(--surface2, #f5f5f5);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-top: 2px;
+}
+.ol-disc-panel select,
+.ol-disc-panel input[type="number"] {
+  font-size: 12px;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  height: 30px;
+}
+.ol-disc-panel select { min-width: 140px; }
+.ol-disc-panel input[type="number"] { width: 90px; }
+.ol-disc-apply { font-size: 12px; padding: 4px 10px; height: 30px; }
+.ol-disc-clear  { font-size: 12px; padding: 4px 10px; height: 30px; color: var(--muted); }
+
 
 /* Responsive */
 @media (max-width: 1100px) { .menu-layout { grid-template-columns: 1fr 360px; } }
