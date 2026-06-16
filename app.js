@@ -1497,17 +1497,28 @@
       const date = $('#expenseDate').value;
       if (!date) { toast('Please select a date', 'error'); return; }
 
-      StorageAPI.addExpense({
-        id:           StorageAPI.uid('exp'),
+      const editId = $('#expenseEditId').value;
+      const fields = {
         date:         new Date(date).toISOString(),
         account_type: $('#expenseAccountType').value,
         category:     cat,
         tin:          $('#expenseTin').value.trim(),
         amount,
         note:         $('#expenseNote').value.trim()
-      });
-      toast('Expense added ✓', 'success');
+      };
+
+      if (editId) {
+        StorageAPI.updateExpense(editId, fields);
+        toast('Expense updated ✓', 'success');
+      } else {
+        StorageAPI.addExpense({ id: StorageAPI.uid('exp'), ...fields });
+        toast('Expense added ✓', 'success');
+      }
+
       // Reset form
+      $('#expenseEditId').value = '';
+      $('#expenseSubmitBtn').textContent = '+ Add Expense';
+      $('#expenseSubmitBtn').className = 'btn btn-primary';
       catSel.value = ''; $('#expenseAccountType').value = ''; $('#expenseTin').value = '';
       $('#expenseAmount').value = ''; $('#expenseNote').value = '';
       $('#expenseDate').value = today(); customRow.style.display = 'none';
@@ -1515,6 +1526,9 @@
     });
 
     $('#expenseClearBtn').addEventListener('click', () => {
+      $('#expenseEditId').value = '';
+      $('#expenseSubmitBtn').textContent = '+ Add Expense';
+      $('#expenseSubmitBtn').className = 'btn btn-primary';
       catSel.value = ''; $('#expenseAccountType').value = ''; $('#expenseTin').value = '';
       $('#expenseAmount').value = ''; $('#expenseNote').value = '';
       $('#expenseDate').value = today(); customRow.style.display = 'none';
@@ -1548,12 +1562,41 @@
       <td style="font-weight:600;">${cur(e.amount)}</td>
       <td style="font-size:12px;max-width:200px;">${e.note || ''}</td>
       <td style="font-size:12px;font-weight:700;color:#1565C0;">${e.done_by || '—'}</td>
-      <td><button class="btn btn-danger btn-sm" data-act="del" data-id="${e.id}">Delete</button></td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-secondary btn-sm" data-act="edit" data-id="${e.id}" style="margin-right:4px;">✏ Edit</button>
+        <button class="btn btn-danger btn-sm" data-act="del" data-id="${e.id}">Delete</button>
+      </td>
     </tr>`).join('') : '<tr><td colspan="8" class="no-data-placeholder">No expenses found</td></tr>';
 
     $$('#expensesTbody [data-act="del"]').forEach(btn => btn.addEventListener('click', () => {
       if (!confirm('Delete this expense?')) return;
       StorageAPI.deleteExpense(btn.dataset.id); toast('Deleted'); renderExpenses(); renderDashboard();
+    }));
+
+    $$('#expensesTbody [data-act="edit"]').forEach(btn => btn.addEventListener('click', () => {
+      const e = StorageAPI.getExpenses().find(x => x.id === btn.dataset.id);
+      if (!e) return;
+      // Populate form
+      $('#expenseEditId').value = e.id;
+      $('#expenseDate').value = e.date ? e.date.slice(0, 10) : '';
+      $('#expenseAccountType').value = e.account_type || '';
+      const knownCats = ['Labor','Utilities','Rent','Supplies','Marketing','Repairs & Maintenance','Transportation','Tax','Other'];
+      if (knownCats.includes(e.category)) {
+        $('#expenseCategory').value = e.category;
+        $('#expenseCustomCategoryRow').style.display = 'none';
+      } else {
+        $('#expenseCategory').value = 'Other';
+        $('#expenseCustomCategoryRow').style.display = '';
+        $('#expenseCustomCategory').value = e.category || '';
+      }
+      $('#expenseTin').value = e.tin || '';
+      $('#expenseAmount').value = e.amount;
+      $('#expenseNote').value = e.note || '';
+      // Switch button to edit mode
+      $('#expenseSubmitBtn').textContent = '💾 Save Changes';
+      $('#expenseSubmitBtn').className = 'btn btn-warning';
+      // Scroll form into view
+      document.querySelector('#expenses .form').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }));
 
     const total = filtered.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
