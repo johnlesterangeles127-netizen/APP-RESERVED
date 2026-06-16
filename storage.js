@@ -334,6 +334,11 @@
     _save(`delete expense [${id}]`, db.from('expenses').delete().eq('id', id));
   }
 
+  function updateExpense(id, fields) {
+    cache.expenses = cache.expenses.map(e => e.id === id ? { ...e, ...fields } : e);
+    _save(`update expense [${id}]`, db.from('expenses').update(fields).eq('id', id));
+  }
+
   // ── STOCK LOG ──────────────────────────────────────────────────────────────
   // app.js calls addStockLog({ item_id, item_name, type, qty, balance, note, date })
   function getStockLog() { return cache.stockLog; }
@@ -564,7 +569,7 @@
     getSessionUser, setSessionUser, clearSessionUser,
     getInventory, saveInventory, upsertItem, deleteItem, getItemById,
     getSales, saveSales, addSale, deleteSale,
-    getExpenses, saveExpenses, addExpense, deleteExpense,
+    getExpenses, saveExpenses, addExpense, deleteExpense, updateExpense,
     getStockLog, addStockLog,
     getStaff, getStaffById, upsertStaff, deleteStaff,
     getPayroll, upsertPayroll, deletePayroll,
