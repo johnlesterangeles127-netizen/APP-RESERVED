@@ -552,10 +552,10 @@
         <div class="section-subheader">
           <h3>Expense History</h3>
           <div class="filters" style="margin:0;">
-            <label>From <input type="date" id="expenseFilterStart" style="width:140px;"></label>
-            <label>To <input type="date" id="expenseFilterEnd" style="width:140px;"></label>
+            <select id="expenseFilterMonth" style="max-width:200px;"></select>
             <select id="expenseFilterCategory" style="max-width:160px;"><option value="">All Categories</option></select>
             <select id="expenseFilterAccount" style="max-width:140px;"><option value="">All Accounts</option></select>
+            <button id="expenseFilterAll" class="btn btn-secondary btn-sm">All Time</button>
             <button id="exportExpensesCsv" class="btn btn-secondary btn-sm">⬇ Export CSV</button>
           </div>
         </div>
