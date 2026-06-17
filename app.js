@@ -1496,29 +1496,16 @@
       if (amount <= 0) { toast('Please enter a valid amount', 'error'); return; }
       const date = $('#expenseDate').value;
       if (!date) { toast('Please select a date', 'error'); return; }
-
-      const editId = $('#expenseEditId').value;
-      const fields = {
+      StorageAPI.addExpense({
+        id:           StorageAPI.uid('exp'),
         date:         new Date(date).toISOString(),
         account_type: $('#expenseAccountType').value,
         category:     cat,
         tin:          $('#expenseTin').value.trim(),
         amount,
         note:         $('#expenseNote').value.trim()
-      };
-
-      if (editId) {
-        StorageAPI.updateExpense(editId, fields);
-        toast('Expense updated ✓', 'success');
-      } else {
-        StorageAPI.addExpense({ id: StorageAPI.uid('exp'), ...fields });
-        toast('Expense added ✓', 'success');
-      }
-
-      // Reset form
-      $('#expenseEditId').value = '';
-      $('#expenseSubmitBtn').textContent = '+ Add Expense';
-      $('#expenseSubmitBtn').className = 'btn btn-primary';
+      });
+      toast('Expense added ✓', 'success');
       catSel.value = ''; $('#expenseAccountType').value = ''; $('#expenseTin').value = '';
       $('#expenseAmount').value = ''; $('#expenseNote').value = '';
       $('#expenseDate').value = today(); customRow.style.display = 'none';
@@ -1526,23 +1513,42 @@
     });
 
     $('#expenseClearBtn').addEventListener('click', () => {
-      $('#expenseEditId').value = '';
-      $('#expenseSubmitBtn').textContent = '+ Add Expense';
-      $('#expenseSubmitBtn').className = 'btn btn-primary';
       catSel.value = ''; $('#expenseAccountType').value = ''; $('#expenseTin').value = '';
       $('#expenseAmount').value = ''; $('#expenseNote').value = '';
       $('#expenseDate').value = today(); customRow.style.display = 'none';
     });
 
-    ['expenseFilterStart','expenseFilterEnd','expenseFilterCategory','expenseFilterAccount'].forEach(id =>
-      $('#' + id).addEventListener('input', renderExpenses)
+    ['expenseFilterCategory','expenseFilterAccount'].forEach(id =>
+      $('#' + id).addEventListener('change', renderExpenses)
     );
+
+    // Month picker — same pattern as sales/inventory history
+    (function() {
+      const sel = $('#expenseFilterMonth');
+      if (sel) sel.addEventListener('change', renderExpenses);
+      const allBtn = $('#expenseFilterAll');
+      if (allBtn) allBtn.addEventListener('click', () => {
+        if ($('#expenseFilterMonth')) $('#expenseFilterMonth').value = '';
+        renderExpenses();
+      });
+    })();
   }
 
   function renderExpenses() {
     const expenses = StorageAPI.getExpenses();
-    const start = $('#expenseFilterStart').value || null;
-    const end   = $('#expenseFilterEnd').value   || null;
+
+    // Rebuild month dropdown from live data — preserve selection across re-renders
+    (function() {
+      const sel = $('#expenseFilterMonth');
+      if (!sel) return;
+      const prevVal = sel.value;
+      buildMonthOptions(expenses.map(e => e.date), 'expenseFilterMonth', !prevVal);
+      if (prevVal && Array.from(sel.options).some(o => o.value === prevVal)) {
+        sel.value = prevVal;
+      }
+    })();
+
+    const { start, end } = monthToRange($('#expenseFilterMonth').value);
     const cat   = $('#expenseFilterCategory').value;
     const acc   = $('#expenseFilterAccount').value;
 
@@ -1576,27 +1582,76 @@
     $$('#expensesTbody [data-act="edit"]').forEach(btn => btn.addEventListener('click', () => {
       const e = StorageAPI.getExpenses().find(x => x.id === btn.dataset.id);
       if (!e) return;
-      // Populate form
-      $('#expenseEditId').value = e.id;
-      $('#expenseDate').value = e.date ? e.date.slice(0, 10) : '';
-      $('#expenseAccountType').value = e.account_type || '';
+
+      // If another row is already in edit mode, restore it first
+      const existing = $('#expensesTbody .inline-edit-row');
+      if (existing) existing.dispatchEvent(new Event('cancel-edit'));
+
+      const row = btn.closest('tr');
       const knownCats = ['Labor','Utilities','Rent','Supplies','Marketing','Repairs & Maintenance','Transportation','Tax','Other'];
-      if (knownCats.includes(e.category)) {
-        $('#expenseCategory').value = e.category;
-        $('#expenseCustomCategoryRow').style.display = 'none';
-      } else {
-        $('#expenseCategory').value = 'Other';
-        $('#expenseCustomCategoryRow').style.display = '';
-        $('#expenseCustomCategory').value = e.category || '';
-      }
-      $('#expenseTin').value = e.tin || '';
-      $('#expenseAmount').value = e.amount;
-      $('#expenseNote').value = e.note || '';
-      // Switch button to edit mode
-      $('#expenseSubmitBtn').textContent = '💾 Save Changes';
-      $('#expenseSubmitBtn').className = 'btn btn-warning';
-      // Scroll form into view
-      document.querySelector('#expenses .form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const catOptions = knownCats.map(c => `<option value="${c}" ${e.category === c ? 'selected' : ''}>${c}</option>`).join('');
+      const customCat = knownCats.includes(e.category) ? '' : e.category;
+
+      row.classList.add('inline-edit-row');
+      row.style.background = 'var(--yellow, #FFF9C4)';
+
+      const originalHTML = row.innerHTML;
+
+      row.innerHTML = `
+        <td><input type="date" class="ie-date" value="${e.date ? e.date.slice(0,10) : ''}" style="width:130px;" /></td>
+        <td>
+          <select class="ie-account" style="width:110px;">
+            <option value="">—</option>
+            ${['Cash','Bank','Credit Card','GCash','Maya','Other'].map(a => `<option ${(e.account_type||'')===a?'selected':''}>${a}</option>`).join('')}
+          </select>
+        </td>
+        <td>
+          <select class="ie-cat" style="width:130px;">
+            ${catOptions}
+            <option value="__custom__" ${!knownCats.includes(e.category)?'selected':''}>Other…</option>
+          </select>
+          <input class="ie-custom-cat" type="text" value="${customCat}" placeholder="Specify…"
+            style="width:110px;margin-top:4px;display:${!knownCats.includes(e.category)?'block':'none'};" />
+        </td>
+        <td><input type="text" class="ie-tin" value="${e.tin||''}" placeholder="TIN" style="width:110px;" /></td>
+        <td><input type="number" class="ie-amount" value="${e.amount}" step="0.01" min="0" style="width:100px;font-weight:600;" /></td>
+        <td><textarea class="ie-note" rows="2" style="width:100%;min-width:140px;font-size:12px;">${e.note||''}</textarea></td>
+        <td style="font-size:12px;font-weight:700;color:#1565C0;">${e.done_by||'—'}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn btn-primary btn-sm ie-save" style="margin-right:4px;">✓ Save</button>
+          <button class="btn btn-secondary btn-sm ie-cancel">✕</button>
+        </td>`;
+
+      // Show/hide custom category input
+      row.querySelector('.ie-cat').addEventListener('change', function() {
+        row.querySelector('.ie-custom-cat').style.display = this.value === '__custom__' ? 'block' : 'none';
+      });
+
+      // Save handler
+      row.querySelector('.ie-save').addEventListener('click', () => {
+        let cat = row.querySelector('.ie-cat').value;
+        if (cat === '__custom__') { cat = row.querySelector('.ie-custom-cat').value.trim(); }
+        if (!cat) { toast('Please specify a category', 'error'); return; }
+        const amount = Number(row.querySelector('.ie-amount').value) || 0;
+        if (amount <= 0) { toast('Enter a valid amount', 'error'); return; }
+        const date = row.querySelector('.ie-date').value;
+        if (!date) { toast('Select a date', 'error'); return; }
+        StorageAPI.updateExpense(e.id, {
+          date:         new Date(date).toISOString(),
+          account_type: row.querySelector('.ie-account').value,
+          category:     cat,
+          tin:          row.querySelector('.ie-tin').value.trim(),
+          amount,
+          note:         row.querySelector('.ie-note').value.trim()
+        });
+        toast('Expense updated ✓', 'success');
+        renderExpenses(); renderDashboard();
+      });
+
+      // Cancel handler — just re-render to restore the row cleanly
+      const cancelFn = () => { renderExpenses(); };
+      row.querySelector('.ie-cancel').addEventListener('click', cancelFn);
+      row.addEventListener('cancel-edit', cancelFn);
     }));
 
     const total = filtered.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
