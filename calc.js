@@ -331,17 +331,37 @@
 
   // Convert payroll records into expense-shaped objects so they can be
   // merged with the expenses array for totals and chart data.
-  // Each payroll entry has a `period` like "2025-05" (YYYY-MM); we map it to
-  // the first day of that month so date-range filters work correctly.
+  //
+  // Period format is now "YYYY-MM-C" where C is the cutoff number:
+  //   C=1  → 1st–15th  → mapped to YYYY-MM-01
+  //   C=2  → 16th–end  → mapped to YYYY-MM-16
+  // Legacy entries stored as "YYYY-MM" are mapped to YYYY-MM-01.
+  function periodToDate(period) {
+    if (!period) return null;
+    // New format: "2025-06-1" or "2025-06-2"
+    const cutoffMatch = period.match(/^(\d{4}-\d{2})-([12])$/);
+    if (cutoffMatch) {
+      const [, ym, c] = cutoffMatch;
+      return ym + (c === '1' ? '-01' : '-16');
+    }
+    // Legacy "YYYY-MM" format
+    const legacyMatch = period.match(/^(\d{4}-\d{2})$/);
+    if (legacyMatch) return period + '-01';
+    return null;
+  }
+
   function payrollToExpenses(payroll) {
-    return (payroll || []).map(p => ({
-      id:       p.id,
-      date:     p.period ? p.period + '-01' : (p.created_at || '').slice(0, 10),
-      amount:   Number(p.net_pay) || 0,
-      category: 'Payroll',
-      note:     p.staff_id ? `Staff payroll (${p.period || ''})` : 'Payroll',
-      _isPayroll: true
-    }));
+    return (payroll || []).map(p => {
+      const date = periodToDate(p.period) || (p.created_at || '').slice(0, 10);
+      return {
+        id:       p.id,
+        date,
+        amount:   Number(p.net_pay) || 0,
+        category: 'Payroll',
+        note:     p.staff_id ? `Staff payroll (${p.period || ''})` : 'Payroll',
+        _isPayroll: true
+      };
+    });
   }
 
   window.Calc = {
@@ -351,6 +371,7 @@
     sumExpenses, sumSalesRevenue, sumSalesCogs, sumSalesGP, netProfit,
     groupByDateTotals, groupByMonthlyTotals, groupByCalendarYear, topSellingItems, topSellingByCategory, topSellingCurrentMonth, topItemsMonthlyTrend,
     withinDate,
+    periodToDate,
     payrollToExpenses
   };
 })();
