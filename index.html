@@ -596,7 +596,14 @@
           <h3>💳 Payroll</h3>
           <div class="filters" style="margin:0;">
             <select id="payrollStaffFilter" style="max-width:180px;"><option value="">All Staff</option></select>
-            <label>Month <input type="month" id="payrollMonth" style="width:150px;"></label>
+            <label>Month <input type="month" id="payrollMonth" style="width:140px;"></label>
+            <label>Cut-off
+              <select id="payrollCutoffFilter" style="width:110px;">
+                <option value="">All</option>
+                <option value="1">1st (1–15)</option>
+                <option value="2">2nd (16–end)</option>
+              </select>
+            </label>
             <button id="addPayrollBtn" class="btn btn-primary btn-sm">+ Add Entry</button>
             <button id="exportPayrollCsv" class="btn btn-secondary btn-sm">⬇ Export CSV</button>
           </div>
@@ -604,7 +611,7 @@
         <div class="table-wrapper">
           <table class="table">
             <thead>
-              <tr><th>Staff</th><th>Period</th><th>Days</th><th>Base Pay</th><th>Overtime</th><th>Cash Advance</th><th>Deductions</th><th>Net Pay</th><th>Actions</th></tr>
+              <tr><th>Staff</th><th>Cut-off Period</th><th>Hours</th><th>Base Pay</th><th>Overtime</th><th>Cash Advance</th><th>Deductions</th><th>Net Pay</th><th>Actions</th></tr>
             </thead>
             <tbody id="payrollTbody" class="zebra"></tbody>
             <tfoot>
@@ -859,22 +866,60 @@
 <dialog id="payrollDialog">
   <h3 id="payrollDialogTitle">Payroll Entry</h3>
   <form id="payrollForm">
-    <div class="form-grid">
-      <div class="form-row">
-        <label for="payrollStaffId">Staff Member *</label>
-        <select id="payrollStaffId" required><option value="">Select staff…</option></select>
-      </div>
-      <div class="form-row"><label for="payrollPeriod">Pay Period *</label><input type="month" id="payrollPeriod" required /></div>
-      <div class="form-row"><label for="payrollHours">Hours Worked *</label><input type="number" step="0.25" min="0" id="payrollHours" placeholder="e.g. 160" required /></div>
-      <div class="form-row"><label for="payrollBase">Base Pay (₱) — Auto-calculated</label><input type="number" step="0.01" min="0" id="payrollBase" placeholder="0.00" readonly style="background:var(--bg);color:var(--muted);cursor:not-allowed;" /></div>
-      <div class="form-row"><label for="payrollOvertime">Overtime Pay (₱)</label><input type="number" step="0.01" min="0" id="payrollOvertime" value="0" /></div>
-      <div class="form-row"><label for="payrollCashAdvance">Cash Advance (₱) <span style="font-size:11px;color:#6b7280;">— auto-deducted from net pay</span></label><input type="number" step="0.01" min="0" id="payrollCashAdvance" value="0" /></div>
-      <div class="form-row"><label for="payrollDeductions">Deductions — SSS / PhilHealth / Pag-IBIG (₱)</label><input type="number" step="0.01" min="0" id="payrollDeductions" value="0" /></div>
-      <div class="form-row">
-        <label>Net Pay Preview</label>
-        <div id="payrollNetPreview" style="font-size:24px;font-weight:700;color:var(--green);padding:6px 0;">₱0.00</div>
+
+    <!-- Staff + Period (full-width rows) -->
+    <div class="form-row payroll-full">
+      <label for="payrollStaffId">Staff Member *</label>
+      <select id="payrollStaffId" required><option value="">Select staff…</option></select>
+    </div>
+
+    <div class="form-row payroll-full">
+      <label>Pay Period *</label>
+      <div class="payroll-period-pair">
+        <input type="month" id="payrollPeriodMonth" required />
+        <select id="payrollCutoff" required>
+          <option value="1">1st cut-off (1–15)</option>
+          <option value="2">2nd cut-off (16–end)</option>
+        </select>
       </div>
     </div>
+    <input type="hidden" id="payrollPeriod" />
+
+    <!-- Hours + Base (2-col) -->
+    <div class="payroll-grid">
+      <div class="form-row">
+        <label for="payrollHours">Hours Worked *</label>
+        <input type="number" step="0.25" min="0" id="payrollHours" placeholder="e.g. 96" required />
+      </div>
+      <div class="form-row">
+        <label for="payrollBase">Base Pay (₱) <span class="payroll-auto-tag">auto</span></label>
+        <input type="number" step="0.01" min="0" id="payrollBase" placeholder="0.00"
+               readonly style="background:var(--bg);color:var(--muted);cursor:not-allowed;" />
+      </div>
+
+      <!-- Overtime (2-col) -->
+      <div class="form-row">
+        <label for="payrollOvertime">Overtime Pay (₱)</label>
+        <input type="number" step="0.01" min="0" id="payrollOvertime" value="0" />
+      </div>
+
+      <!-- Deductions group -->
+      <div class="form-row">
+        <label for="payrollCashAdvance">Cash Advance (₱)</label>
+        <input type="number" step="0.01" min="0" id="payrollCashAdvance" value="0" />
+      </div>
+      <div class="form-row" style="grid-column:span 2;">
+        <label for="payrollDeductions">Deductions — SSS / PhilHealth / Pag-IBIG (₱)</label>
+        <input type="number" step="0.01" min="0" id="payrollDeductions" value="0" />
+      </div>
+    </div>
+
+    <!-- Net Pay Preview -->
+    <div class="payroll-net-preview">
+      <span class="payroll-net-label">Net Pay</span>
+      <span id="payrollNetPreview" class="payroll-net-amount">₱0.00</span>
+    </div>
+
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">💾 Save Payroll</button>
       <button type="button" id="payrollDialogCancel" class="btn btn-secondary">Cancel</button>
