@@ -1696,12 +1696,18 @@
       const ded   = Number($('#payrollDeductions').value)     || 0;
       const staffId = $('#payrollStaffId').value;
       if (!staffId) { toast('Please select a staff member', 'error'); return; }
-      StorageAPI.upsertPayroll({ id, staff_id: staffId, period: $('#payrollPeriod').value, hours_worked: Number($('#payrollHours').value) || 0, base_pay: base, overtime: ot, cash_advance: ca, deductions: ded, net_pay: base + ot - ca - ded, created_at: new Date().toISOString() });
+      // Build period as "YYYY-MM-C" (e.g. "2025-06-1" for 1st cutoff)
+      const periodMonth  = $('#payrollPeriodMonth').value;  // "YYYY-MM"
+      const cutoffVal    = $('#payrollCutoff').value;        // "1" or "2"
+      if (!periodMonth || !cutoffVal) { toast('Please select a pay period and cut-off', 'error'); return; }
+      const period = `${periodMonth}-${cutoffVal}`;
+      StorageAPI.upsertPayroll({ id, staff_id: staffId, period, hours_worked: Number($('#payrollHours').value) || 0, base_pay: base, overtime: ot, cash_advance: ca, deductions: ded, net_pay: base + ot - ca - ded, created_at: new Date().toISOString() });
       $('#payrollDialog').close(); toast('Payroll saved ✓', 'success'); renderStaff();
     });
 
     $('#payrollStaffFilter').addEventListener('change', renderStaff);
     $('#payrollMonth').addEventListener('change', renderStaff);
+    $('#payrollCutoffFilter').addEventListener('change', renderStaff);
     $('#payslipPrint').addEventListener('click', printCurrentPayslip);
     $('#payslipClose').addEventListener('click', () => $('#payslipDialog').close());
     $('#exportPayrollCsv').addEventListener('click', () => { StorageAPI.downloadCSV('payroll.csv', StorageAPI.getPayroll()); toast('Exported ✓'); });
@@ -1731,13 +1737,27 @@
       const entry = StorageAPI.getPayroll().find(p => p.id === entryId);
       if (entry) {
         $('#payrollEntryId').value = entry.id; sel.value = entry.staff_id;
-        $('#payrollPeriod').value = entry.period; $('#payrollHours').value = entry.hours_worked;
+        // Parse "YYYY-MM-C" or legacy "YYYY-MM"
+        const cutoffMatch = (entry.period || '').match(/^(\d{4}-\d{2})-([12])$/);
+        if (cutoffMatch) {
+          $('#payrollPeriodMonth').value = cutoffMatch[1];
+          $('#payrollCutoff').value      = cutoffMatch[2];
+        } else {
+          // Legacy: treat as whole month, default to 1st cutoff
+          $('#payrollPeriodMonth').value = (entry.period || '').slice(0, 7);
+          $('#payrollCutoff').value      = '1';
+        }
+        $('#payrollHours').value = entry.hours_worked;
         $('#payrollBase').value = entry.base_pay; $('#payrollOvertime').value = entry.overtime;
         $('#payrollCashAdvance').value = entry.cash_advance || 0; $('#payrollDeductions').value = entry.deductions;
       }
     } else {
       $('#payrollForm').reset(); $('#payrollEntryId').value = '';
-      $('#payrollPeriod').value = today().slice(0, 7);
+      // Default: current month, auto-pick cutoff based on today's date
+      const now = new Date();
+      const ym  = now.toISOString().slice(0, 7); // "YYYY-MM"
+      $('#payrollPeriodMonth').value = ym;
+      $('#payrollCutoff').value      = now.getDate() <= 15 ? '1' : '2';
       const fStaff = $('#payrollStaffFilter').value;
       if (fStaff) { 
         sel.value = fStaff;
@@ -1773,7 +1793,9 @@
 
   function renderStaff() {
     const allStaff = StorageAPI.getStaff(), payroll = StorageAPI.getPayroll();
-    const fStaff = $('#payrollStaffFilter').value, fMonth = $('#payrollMonth').value;
+    const fStaff  = $('#payrollStaffFilter').value;
+    const fMonth  = $('#payrollMonth').value;        // "YYYY-MM" or ""
+    const fCutoff = $('#payrollCutoffFilter').value; // "1", "2", or ""
 
     $('#staffTbody').innerHTML = allStaff.length ? allStaff.map(st => `<tr>
       <td><strong>${st.name}</strong></td>
@@ -1800,15 +1822,61 @@
     const prevF = $('#payrollStaffFilter').value;
     $('#payrollStaffFilter').innerHTML = '<option value="">All Staff</option>' + allStaff.map(st => `<option value="${st.id}" ${st.id === prevF ? 'selected' : ''}>${st.name}</option>`).join('');
 
-    const filtered = payroll.filter(p => (!fStaff || p.staff_id === fStaff) && (!fMonth || p.period === fMonth));
+    // Helper: parse the period field to extract YYYY-MM and cutoff number
+    function parsePeriod(period) {
+      if (!period) return { ym: '', cutoff: '' };
+      const m = period.match(/^(\d{4}-\d{2})-([12])$/);
+      if (m) return { ym: m[1], cutoff: m[2] };
+      // Legacy "YYYY-MM"
+      const leg = period.match(/^(\d{4}-\d{2})$/);
+      if (leg) return { ym: leg[1], cutoff: '' };
+      return { ym: '', cutoff: '' };
+    }
+
+    function cutoffLabel(period) {
+      const { ym, cutoff } = parsePeriod(period);
+      if (!ym) return period || '—';
+      const [year, mon] = ym.split('-');
+      const monthName = new Date(Number(year), Number(mon) - 1, 1)
+        .toLocaleDateString('en-PH', { month: 'short', year: 'numeric' });
+      if (cutoff === '1') return `${monthName} · 1st (1–15)`;
+      if (cutoff === '2') return `${monthName} · 2nd (16–end)`;
+      return `${monthName} (legacy)`;
+    }
+
+    // Filter payroll by staff, month, and cutoff
+    const filtered = payroll.filter(p => {
+      if (fStaff && p.staff_id !== fStaff) return false;
+      const { ym, cutoff } = parsePeriod(p.period);
+      if (fMonth && ym !== fMonth) return false;
+      if (fCutoff && cutoff !== fCutoff) return false;
+      return true;
+    });
+
+    // Sort: newest period first, then by cutoff descending (2nd before 1st within same month)
+    filtered.sort((a, b) => {
+      const pa = parsePeriod(a.period), pb = parsePeriod(b.period);
+      if (pa.ym !== pb.ym) return pb.ym.localeCompare(pa.ym);
+      return (pb.cutoff || '0').localeCompare(pa.cutoff || '0');
+    });
+
     $('#payrollTbody').innerHTML = filtered.length ? filtered.map(p => {
       const st = allStaff.find(x => x.id === p.staff_id);
-      const hourlyRate = st?.hourly_rate || 0;
+      const hourlyRate  = st?.hourly_rate || 0;
       const hoursWorked = p.hours_worked || 0;
       const computedBase = hourlyRate * hoursWorked;
+      const { cutoff } = parsePeriod(p.period);
+      const cutoffBadgeColor = cutoff === '1'
+        ? 'background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9;'
+        : cutoff === '2'
+        ? 'background:#F3E5F5;color:#6A1B9A;border:1px solid #CE93D8;'
+        : 'background:#F5F5F5;color:#555;';
       return `<tr>
         <td>${st ? `<strong>${st.name}</strong>` : '—'}</td>
-        <td>${p.period || '—'}</td>
+        <td>
+          <div style="font-size:12px;font-weight:600;">${cutoffLabel(p.period)}</div>
+          ${cutoff ? `<span style="font-size:10px;padding:1px 6px;border-radius:10px;${cutoffBadgeColor}">${cutoff === '1' ? '1st cut-off' : '2nd cut-off'}</span>` : ''}
+        </td>
         <td title="Hours × Hourly Rate: ${hoursWorked} hrs @ ${cur(hourlyRate)}/hr">${hoursWorked ?? '—'}</td>
         <td style="font-size:12px;color:var(--muted);" title="Computed: ${hoursWorked} × ${cur(hourlyRate)}">${cur(computedBase)}</td>
         <td>${cur(p.overtime)}</td>
@@ -1858,6 +1926,19 @@
     const ded         = Number(entry.deductions) || 0;
     const net         = Number(entry.net_pay) || (base + ot - ca - ded);
 
+    // Build human-readable period label
+    function periodLabel(period) {
+      if (!period) return '—';
+      const m = period.match(/^(\d{4}-\d{2})-([12])$/);
+      if (m) {
+        const [year, mon] = m[1].split('-');
+        const monthName = new Date(Number(year), Number(mon) - 1, 1)
+          .toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+        return m[2] === '1' ? `${monthName} · 1st Cut-off (1–15)` : `${monthName} · 2nd Cut-off (16–end)`;
+      }
+      return period;
+    }
+
     $('#payslipContent').innerHTML = `
       <div style="text-align:center;padding-bottom:14px;border-bottom:2px solid #eee;margin-bottom:14px;">
         <div style="font-size:22px;font-weight:800;letter-spacing:1px;">🍽️ RESERVE</div>
@@ -1867,7 +1948,7 @@
         <tr><td style="color:#888;padding:5px 0;width:50%;">Employee</td><td style="font-weight:700;text-align:right;">${st?.name || '—'}</td></tr>
         <tr><td style="color:#888;padding:5px 0;">Position</td><td style="text-align:right;">${st?.position || '—'}</td></tr>
         <tr><td style="color:#888;padding:5px 0;">Employment Type</td><td style="text-align:right;">${st?.employment_type || '—'}</td></tr>
-        <tr><td style="color:#888;padding:5px 0;">Pay Period</td><td style="font-weight:600;text-align:right;">${entry.period || '—'}</td></tr>
+        <tr><td style="color:#888;padding:5px 0;">Pay Period</td><td style="font-weight:600;text-align:right;">${periodLabel(entry.period)}</td></tr>
         ${hourlyRate > 0 ? `<tr><td style="color:#888;padding:5px 0;">Hourly Rate</td><td style="text-align:right;">${cur(hourlyRate)}</td></tr>
         <tr><td style="color:#888;padding:5px 0;">Hours Worked</td><td style="text-align:right;">${hoursWorked} hrs</td></tr>` : ''}
       </table>
@@ -1902,6 +1983,18 @@
     const ded         = Number(entry.deductions) || 0;
     const net         = Number(entry.net_pay) || (base + ot - ca - ded);
 
+    function periodLabel(period) {
+      if (!period) return '—';
+      const m = period.match(/^(\d{4}-\d{2})-([12])$/);
+      if (m) {
+        const [year, mon] = m[1].split('-');
+        const monthName = new Date(Number(year), Number(mon) - 1, 1)
+          .toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+        return m[2] === '1' ? `${monthName} · 1st Cut-off (1–15)` : `${monthName} · 2nd Cut-off (16–end)`;
+      }
+      return period;
+    }
+
     const win = window.open('', '_blank', 'width=480,height=700');
     if (!win) { toast('Allow pop-ups to print payslips', 'error'); return; }
     win.document.write(`<!DOCTYPE html><html><head><title>Payslip — ${st?.name || ''}</title>
@@ -1928,7 +2021,7 @@
     </style></head><body>
     <div class="header">
       <h1>🍽️ RESERVE</h1>
-      <p>Official Payslip &nbsp;·&nbsp; Pay Period: <strong>${entry.period || '—'}</strong></p>
+      <p>Official Payslip &nbsp;·&nbsp; Pay Period: <strong>${periodLabel(entry.period)}</strong></p>
     </div>
 
     <table>
@@ -1989,7 +2082,10 @@
     const fExp   = expenses.filter(e => inRange(e.date, start, end));
     const fPay   = payroll.filter(p => {
       if (!p.period) return true;
-      return (!start || p.period + '-28' >= start) && (!end || p.period + '-01' <= end);
+      // Use the canonical date for this cutoff period
+      const pDate = Calc.periodToDate(p.period);
+      if (!pDate) return true;
+      return (!start || pDate >= start) && (!end || pDate <= end);
     });
 
     const salesRev = fSales.reduce((sum, s) => sum + saleRevenue(s), 0);
